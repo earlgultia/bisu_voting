@@ -32,8 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $_SESSION['user_id'] = (int)$user['id'];
                 $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
 
-                // Determine admin status safely (only query if column exists)
+                $admin_email = 'admin.ssg@bisu.edu.ph';
                 $is_admin = false;
+
+                // The BISU admin account should always land in the admin dashboard,
+                // even if the row was created before the is_admin flag existed.
+                if ($email === $admin_email) {
+                    $is_admin = true;
+                }
+
+                // Determine admin status safely (only query if column exists)
                 $admin_col = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'is_admin'");
                 if ($admin_col && mysqli_num_rows($admin_col) > 0) {
                     $checkAdmin = mysqli_prepare($conn, 'SELECT is_admin FROM students WHERE id = ? LIMIT 1');
@@ -42,14 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $admin_res = mysqli_stmt_get_result($checkAdmin);
                     if ($admin_res && mysqli_num_rows($admin_res) == 1) {
                         $admin_row = mysqli_fetch_assoc($admin_res);
-                        $is_admin = !empty($admin_row['is_admin']);
+                        $is_admin = $is_admin || !empty($admin_row['is_admin']);
                     }
                     mysqli_stmt_close($checkAdmin);
-                } else {
-                    // fallback to plaintext admin email if schema is old
-                    if (!$use_hash && $email === 'admin.ssg@bisu.edu.ph') {
-                        $is_admin = true;
-                    }
                 }
                 $_SESSION['is_admin'] = $is_admin;
 

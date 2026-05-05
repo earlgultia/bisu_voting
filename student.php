@@ -285,6 +285,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             padding: 0.2rem 0.1rem 0.9rem;
         }
 
+        .panel-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
         .panel-toggle::-webkit-details-marker {
             display: none;
         }
@@ -316,6 +322,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             color: var(--muted);
             font-weight: 600;
             font-size: 0.86rem;
+        }
+
+        .panel-logo {
+            width: 1.7rem;
+            height: 1.7rem;
+            object-fit: contain;
+            display: block;
+            flex: 0 0 auto;
         }
 
         .panel-body {
@@ -355,11 +369,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
         .candidate-card {
             border: 1px solid rgba(15, 23, 42, 0.08);
             border-radius: 18px;
-            padding: 1rem;
+            padding: 0.85rem;
             background: linear-gradient(180deg, #ffffff, #f8fbff);
             display: flex;
             flex-direction: column;
-            gap: 0.85rem;
+            gap: 0.7rem;
             transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
             cursor: pointer;
             box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
@@ -373,9 +387,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
         }
 
         .candidate-photo {
-            aspect-ratio: 4 / 3;
+            aspect-ratio: 16 / 9;
             width: 100%;
-            min-height: 160px;
+            min-height: 100px;
+            padding: 0.35rem;
             border-radius: 14px;
             background: radial-gradient(circle at top, rgba(255, 255, 255, 0.9), transparent 40%),
                         linear-gradient(135deg, rgba(23, 59, 114, 0.06), rgba(17, 124, 107, 0.08));
@@ -389,14 +404,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
         .candidate-img {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
             object-position: center;
             display: block;
             transition: transform 0.35s ease;
         }
 
         .candidate-card:hover .candidate-img {
-            transform: scale(1.05);
+            transform: scale(1.02);
         }
 
         .photo-placeholder {
@@ -408,11 +423,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             color: var(--muted);
             font-weight: 700;
             letter-spacing: 0.02em;
-            font-size: 0.9rem;
+            font-size: 0.82rem;
         }
 
         .candidate-name {
-            font-size: 1.06rem;
+            font-size: 1rem;
             font-weight: 800;
             color: var(--accent-strong);
         }
@@ -583,9 +598,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                     <div class="election-grid">
                         <?php foreach ($election_groups as $election_type => $groups): ?>
                             <?php if (!empty($groups)): ?>
-                                <details class="election-panel" open>
+                                <details class="election-panel">
                                     <summary class="panel-toggle">
-                                        <span><?php echo h($election_type); ?> Election</span>
+                                        <span class="panel-title">
+                                            <?php if ($election_type === 'SSG'): ?>
+                                                <img src="uploads/ssg-logo.png" class="panel-logo" alt="SSG logo">
+                                            <?php elseif ($election_type === 'FTP'): ?>
+                                                <img src="uploads/ftp-logo.png" class="panel-logo" alt="FTP logo">
+                                            <?php endif; ?>
+                                            <span><?php echo h($election_type); ?> Election</span>
+                                        </span>
                                         <span class="panel-meta">
                                             <span><?php echo count($groups); ?> position(s)</span>
                                         </span>

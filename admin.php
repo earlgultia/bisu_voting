@@ -132,6 +132,58 @@ while ($row = mysqli_fetch_assoc($position_count_result)) {
     $position_counts[$type_key][$position_key] = (int)$row['total'];
 }
 
+$analytics_ready = false;
+$college_vote_stats = [];
+$course_vote_stats = [];
+$total_profile_students = 0;
+$total_profile_voted = 0;
+$college_col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'college'");
+$course_col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'course'");
+$admin_col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'is_admin'");
+$analytics_ready = (
+    $college_col_check && mysqli_num_rows($college_col_check) > 0
+    && $course_col_check && mysqli_num_rows($course_col_check) > 0
+);
+
+if ($analytics_ready) {
+    $student_scope = ($admin_col_check && mysqli_num_rows($admin_col_check) > 0)
+        ? 'WHERE COALESCE(is_admin, 0) = 0'
+        : '';
+
+    $college_vote_query = mysqli_query(
+        $conn,
+        "SELECT COALESCE(NULLIF(TRIM(college), ''), 'Unassigned') AS label, COUNT(*) AS total_students, SUM(CASE WHEN has_voted = 1 THEN 1 ELSE 0 END) AS voted_students FROM students {$student_scope} GROUP BY label ORDER BY label"
+    );
+    if ($college_vote_query) {
+        while ($row = mysqli_fetch_assoc($college_vote_query)) {
+            $college_vote_stats[] = [
+                'label' => (string) $row['label'],
+                'total' => (int) $row['total_students'],
+                'voted' => (int) $row['voted_students'],
+            ];
+            $total_profile_students += (int) $row['total_students'];
+            $total_profile_voted += (int) $row['voted_students'];
+        }
+        mysqli_free_result($college_vote_query);
+    }
+
+    $course_vote_query = mysqli_query(
+        $conn,
+        "SELECT COALESCE(NULLIF(TRIM(college), ''), 'Unassigned') AS college_label, COALESCE(NULLIF(TRIM(course), ''), 'Unassigned') AS course_label, COUNT(*) AS total_students, SUM(CASE WHEN has_voted = 1 THEN 1 ELSE 0 END) AS voted_students FROM students {$student_scope} GROUP BY college_label, course_label ORDER BY college_label, course_label"
+    );
+    if ($course_vote_query) {
+        while ($row = mysqli_fetch_assoc($course_vote_query)) {
+            $course_vote_stats[] = [
+                'college' => (string) $row['college_label'],
+                'course' => (string) $row['course_label'],
+                'total' => (int) $row['total_students'],
+                'voted' => (int) $row['voted_students'],
+            ];
+        }
+        mysqli_free_result($course_vote_query);
+    }
+}
+
 if (isset($_GET['stats'])) {
     header('Content-Type: application/json');
     echo json_encode([
@@ -171,6 +223,13 @@ if (isset($_GET['stats'])) {
         .logout-btn {
             padding: 0.58rem 1.15rem;
         }
+        .brand-logo {
+            width: 2.35rem;
+            height: 2.35rem;
+            object-fit: contain;
+            display: block;
+            flex: 0 0 auto;
+        }
         .stats-card {
             padding: 1.2rem;
             display: grid;
@@ -188,6 +247,99 @@ if (isset($_GET['stats'])) {
             background: linear-gradient(180deg, #ffffff, #f8fbff);
             border: 1px solid rgba(15, 23, 42, 0.08);
             box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04);
+        }
+        .analytics-section {
+            margin-bottom: 2rem;
+        }
+        .analytics-summary {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .analytics-summary-card,
+        .analytics-panel {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            background: linear-gradient(180deg, #ffffff, #f9fbff);
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04);
+        }
+        .analytics-summary-card {
+            padding: 1rem 1.1rem;
+        }
+        .analytics-label {
+            display: block;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-size: 0.68rem;
+            margin-bottom: 0.35rem;
+        }
+        .analytics-value {
+            display: block;
+            font-size: clamp(1.65rem, 3vw, 2.05rem);
+            font-weight: 700;
+            color: var(--accent-strong);
+        }
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+        .analytics-panel {
+            padding: 1rem;
+        }
+        .analytics-panel h4 {
+            margin-bottom: 0.35rem;
+        }
+        .analytics-panel .note {
+            margin-top: 0.35rem;
+        }
+        .progress-list {
+            display: grid;
+            gap: 0.9rem;
+            margin-top: 1rem;
+        }
+        .progress-item {
+            display: grid;
+            gap: 0.45rem;
+        }
+        .progress-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+        .progress-title {
+            font-weight: 700;
+            color: var(--accent-strong);
+        }
+        .progress-subtitle {
+            display: block;
+            color: var(--muted);
+            font-size: 0.84rem;
+            margin-top: 0.2rem;
+        }
+        .progress-meta {
+            color: var(--muted);
+            font-size: 0.84rem;
+            white-space: nowrap;
+        }
+        .progress-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: #e7edf4;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        }
+        .analytics-empty {
+            padding: 1rem;
+            margin-bottom: 1rem;
         }
         .stat-label {
             color: var(--muted);
@@ -229,6 +381,66 @@ if (isset($_GET['stats'])) {
             border-radius: var(--radius-sm);
             border: 1px solid var(--line);
             box-shadow: 0 14px 30px rgba(15, 23, 42, 0.04);
+        }
+        .results-accordion {
+            display: grid;
+            gap: 1rem;
+        }
+        .results-panel {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+        }
+        .results-panel[open] {
+            border-color: rgba(23, 59, 114, 0.16);
+        }
+        .results-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1.1rem;
+            cursor: pointer;
+            list-style: none;
+            font-weight: 800;
+            color: var(--accent-strong);
+            background: linear-gradient(135deg, rgba(23, 59, 114, 0.05), rgba(17, 124, 107, 0.06));
+        }
+        .results-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+        .results-toggle::-webkit-details-marker {
+            display: none;
+        }
+        .results-toggle::after {
+            content: '+';
+            flex: 0 0 auto;
+            width: 1.9rem;
+            height: 1.9rem;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            background: rgba(23, 59, 114, 0.08);
+            color: var(--accent-strong);
+            font-size: 1.1rem;
+        }
+        .results-panel[open] .results-toggle::after {
+            content: '–';
+            background: rgba(17, 124, 107, 0.12);
+        }
+        .results-logo {
+            width: 1.6rem;
+            height: 1.6rem;
+            object-fit: contain;
+            display: block;
+            flex: 0 0 auto;
+        }
+        .results-body {
+            padding: 0.85rem 0 0;
         }
         table {
             width: 100%;
@@ -325,6 +537,11 @@ if (isset($_GET['stats'])) {
                 gap: 1rem;
             }
 
+            .analytics-summary,
+            .analytics-grid {
+                grid-template-columns: 1fr;
+            }
+
             .grid-2 {
                 gap: 1.25rem;
             }
@@ -410,7 +627,7 @@ if (isset($_GET['stats'])) {
 <body data-total-votes="<?php echo (int)$total_votes; ?>">
     <header class="topbar dashboard-header">
         <div class="brand">
-            <span class="brand-mark"></span>
+            <img src="uploads/admin-logo.png" class="brand-logo" alt="Commission on Student Elections logo">
             <div>
                 <div class="brand-title">BISU Voting System</div>
                 <div class="brand-sub">Admin Panel</div>
@@ -434,6 +651,83 @@ if (isset($_GET['stats'])) {
                 <div class="stat-label">Active Candidates</div>
                         <div class="stat-number"><?php echo (int)$candidate_count; ?></div>
             </div>
+        </div>
+
+        <div class="section card analytics-section">
+            <h3 class="section-title">
+                Voting Analytics
+                <span>College and course completion</span>
+            </h3>
+            <?php if ($analytics_ready && (!empty($college_vote_stats) || !empty($course_vote_stats))): ?>
+                <div class="analytics-summary">
+                    <div class="analytics-summary-card">
+                        <span class="analytics-label">Registered students</span>
+                        <span class="analytics-value"><?php echo (int)$total_profile_students; ?></span>
+                    </div>
+                    <div class="analytics-summary-card">
+                        <span class="analytics-label">Students who voted</span>
+                        <span class="analytics-value"><?php echo (int)$total_profile_voted; ?></span>
+                    </div>
+                    <div class="analytics-summary-card">
+                        <span class="analytics-label">Completion rate</span>
+                        <span class="analytics-value"><?php echo $total_profile_students > 0 ? round(($total_profile_voted / $total_profile_students) * 100) : 0; ?>%</span>
+                    </div>
+                </div>
+
+                <div class="analytics-grid">
+                    <div class="analytics-panel">
+                        <h4>By College</h4>
+                        <p class="note">See which colleges have finished voting and which still have pending ballots.</p>
+                        <div class="progress-list">
+                            <?php foreach ($college_vote_stats as $college_stat):
+                                $college_percent = $college_stat['total'] > 0 ? round(($college_stat['voted'] / $college_stat['total']) * 100) : 0;
+                            ?>
+                                <div class="progress-item">
+                                    <div class="progress-head">
+                                        <div>
+                                            <div class="progress-title"><?php echo h($college_stat['label']); ?></div>
+                                            <span class="progress-subtitle"><?php echo (int)$college_stat['voted']; ?> of <?php echo (int)$college_stat['total']; ?> voted</span>
+                                        </div>
+                                        <div class="progress-meta"><?php echo (int)$college_percent; ?>%</div>
+                                    </div>
+                                    <div class="progress-track" aria-hidden="true">
+                                        <div class="progress-fill" style="width: <?php echo (int)$college_percent; ?>%;"></div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+
+                    <div class="analytics-panel">
+                        <h4>By Course</h4>
+                        <p class="note">Track vote completion for each course under its college.</p>
+                        <div class="progress-list">
+                            <?php foreach ($course_vote_stats as $course_stat):
+                                $course_percent = $course_stat['total'] > 0 ? round(($course_stat['voted'] / $course_stat['total']) * 100) : 0;
+                            ?>
+                                <div class="progress-item">
+                                    <div class="progress-head">
+                                        <div>
+                                            <div class="progress-title"><?php echo h($course_stat['course']); ?></div>
+                                            <span class="progress-subtitle"><?php echo h($course_stat['college']); ?></span>
+                                        </div>
+                                        <div class="progress-meta"><?php echo (int)$course_percent; ?>%</div>
+                                    </div>
+                                    <div class="progress-track" aria-hidden="true">
+                                        <div class="progress-fill" style="width: <?php echo (int)$course_percent; ?>%;"></div>
+                                    </div>
+                                    <span class="progress-subtitle"><?php echo (int)$course_stat['voted']; ?> of <?php echo (int)$course_stat['total']; ?> voted</span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="notice card analytics-empty">
+                    <h3>Analytics not available yet.</h3>
+                    <p>Add or update student profiles with college and course information to see voting progress here.</p>
+                </div>
+            <?php endif; ?>
         </div>
         
         <div class="grid-2">
@@ -496,84 +790,108 @@ if (isset($_GET['stats'])) {
                 Candidates and Live Results
                 <span>Sorted by position</span>
             </h3>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Picture</th>
-                            <th>Election</th>
-                            <th>Name</th>
-                            <th>Position</th>
-                            <th>Details</th>
-                            <th>Votes</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php 
-                        $current_position = '';
-                        $current_election_type = '';
-                        $position_winners = [];
-                        while($candidate = mysqli_fetch_assoc($candidates)): 
-                            $candidate_type = strtoupper(trim($candidate['election_type'] ?? 'SSG'));
-                            if ($candidate_type !== $current_election_type) {
-                                $current_election_type = $candidate_type;
-                                $current_position = '';
-                                echo "<tr class='position-row'><td colspan='8'>" . htmlspecialchars($current_election_type) . " Election</td></tr>";
-                            }
+            <?php
+            $candidates_by_election = [];
+            $position_winners = [];
 
-                            if ($candidate['position'] !== $current_position) {
-                                $current_position = $candidate['position'];
-                                $position_total = $position_counts[$candidate_type][$current_position] ?? 0;
-                                echo "<tr class='position-row'><td colspan='8'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
-                            }
-                            // Determine winner per position
-                            $winner_key = $candidate_type . '::' . $candidate['position'];
-                            if(!isset($position_winners[$winner_key])) {
-                                $position_winners[$winner_key] = $candidate;
-                            } else {
-                                if($candidate['votes_count'] > $position_winners[$winner_key]['votes_count']) {
-                                    $position_winners[$winner_key] = $candidate;
-                                }
-                            }
-                        ?>
-                        <tr>
-                            <td>
-                                <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
-                                    <img src="<?php echo $candidate['picture']; ?>" class="candidate-img" alt="Candidate photo">
-                                <?php else: ?>
-                                    <span class="muted">No photo</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><?php echo h($candidate_type . ' Election'); ?></td>
-                            <td><?php echo h($candidate['name']); ?></td>
-                            <td><?php echo h($candidate['position']); ?></td>
-                            <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
-                            <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
-                            <td>
-                                <?php 
-                                if($position_winners[$winner_key]['id'] == $candidate['id'] && $candidate['votes_count'] > 0) {
-                                    echo "<span class='badge'>Leading</span>";
-                                }
-                                ?>
-                            </td>
-                            <td>
-                                <form method="POST" onsubmit="return confirm('Remove this candidate?')">
-                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
-                                    <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
-                                    <button type="submit" class="btn btn-danger btn-sm">Remove</button>
-                                </form>
-                            </td>
-                        </tr>
-                        <?php endwhile; ?>
-                        <?php if($candidate_count == 0): ?>
-                        <tr>
-                            <td colspan="8" style="text-align:center;">No candidates added yet. Add candidates above.</td>
-                        </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+            while ($candidate = mysqli_fetch_assoc($candidates)) {
+                $candidate_type = strtoupper(trim($candidate['election_type'] ?? 'SSG'));
+                if (!isset($candidates_by_election[$candidate_type])) {
+                    $candidates_by_election[$candidate_type] = [];
+                }
+
+                $candidates_by_election[$candidate_type][] = $candidate;
+
+                $winner_key = $candidate_type . '::' . $candidate['position'];
+                if (!isset($position_winners[$winner_key])) {
+                    $position_winners[$winner_key] = $candidate;
+                } elseif ($candidate['votes_count'] > $position_winners[$winner_key]['votes_count']) {
+                    $position_winners[$winner_key] = $candidate;
+                }
+            }
+            ?>
+            <div class="results-accordion">
+                <?php foreach (['SSG', 'FTP'] as $election_type): ?>
+                    <?php if (!empty($candidates_by_election[$election_type])): ?>
+                        <details class="results-panel" <?php echo $election_type === 'SSG' ? 'id="ssg-results"' : ''; ?>>
+                            <summary class="results-toggle">
+                                <span class="results-title">
+                                    <?php if ($election_type === 'SSG'): ?>
+                                        <img src="uploads/ssg-logo.png" class="results-logo" alt="SSG logo">
+                                    <?php elseif ($election_type === 'FTP'): ?>
+                                        <img src="uploads/ftp-logo.png" class="results-logo" alt="FTP logo">
+                                    <?php endif; ?>
+                                    <span><?php echo h($election_type); ?> Election</span>
+                                </span>
+                                <span class="position-meta"><?php echo count($candidates_by_election[$election_type]); ?> candidate(s)</span>
+                            </summary>
+
+                            <div class="results-body">
+                                <div class="table-wrap">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Picture</th>
+                                                <th>Name</th>
+                                                <th>Position</th>
+                                                <th>Details</th>
+                                                <th>Votes</th>
+                                                <th>Status</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php
+                                            $current_position = '';
+                                            foreach ($candidates_by_election[$election_type] as $candidate):
+                                                if ($candidate['position'] !== $current_position) {
+                                                    $current_position = $candidate['position'];
+                                                    $position_total = $position_counts[$election_type][$current_position] ?? 0;
+                                                    echo "<tr class='position-row'><td colspan='7'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
+                                                }
+                                            ?>
+                                            <tr>
+                                                <td>
+                                                    <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
+                                                        <img src="<?php echo $candidate['picture']; ?>" class="candidate-img" alt="Candidate photo">
+                                                    <?php else: ?>
+                                                        <span class="muted">No photo</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><?php echo h($candidate['name']); ?></td>
+                                                <td><?php echo h($candidate['position']); ?></td>
+                                                <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
+                                                <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
+                                                <td>
+                                                    <?php
+                                                    $winner_key = $election_type . '::' . $candidate['position'];
+                                                    if (isset($position_winners[$winner_key]) && $position_winners[$winner_key]['id'] == $candidate['id'] && $candidate['votes_count'] > 0) {
+                                                        echo "<span class='badge'>Leading</span>";
+                                                    }
+                                                    ?>
+                                                </td>
+                                                <td>
+                                                    <form method="POST" onsubmit="return confirm('Remove this candidate?')">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                                                        <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
+                                                        <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </details>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+                <?php if($candidate_count == 0): ?>
+                    <div class="notice card" style="margin-top: 0;">
+                        <h3>No candidates added yet.</h3>
+                        <p>Add candidates above.</p>
+                    </div>
+                <?php endif; ?>
             </div>
             
             <?php if(!empty($position_winners)): ?>
@@ -700,6 +1018,7 @@ if (isset($_GET['stats'])) {
             }
 
             setInterval(checkForVoteUpdates, 5000);
+
         </script>
 </body>
 </html>

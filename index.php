@@ -339,7 +339,7 @@
         <section class="hero">
             <div class="hero-copy">
                 <p class="eyebrow">BISU Student Portal</p>
-                <h1>Secure, fast, and transparent student elections.</h1>
+                <h1>Student elections made simple.</h1>
                 <p class="hero-lead">Cast your vote with confidence. Review candidates by position and submit a verified ballot in minutes.</p>
                 <div class="hero-actions">
                     <a href="login.php" class="btn btn-primary">Login to Vote</a>

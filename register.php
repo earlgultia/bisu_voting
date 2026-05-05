@@ -1,5 +1,24 @@
 <?php include 'config/db.php';
 
+$college_courses = [
+    'College of Science' => [
+        'Computer Science (BSCS)',
+        'Environmental Science (BSES)',
+    ],
+    'College of Business Management' => [
+        'Hospitality Management (BSHM)',
+        'Office Administration (BSOA)',
+    ],
+    'College of Fisheries and Marine Sciences' => [
+        'Fisheries (BSF)',
+        'Marine Biology (BSMB)',
+    ],
+    'College of Teachers Education' => [
+        'Elementary Education (BEEd)',
+        'Secondary Education (BSEd)',
+    ],
+];
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
         $error = 'Your session expired. Please try again.';
@@ -7,20 +26,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $first_name = trim($_POST['first_name']);
         $last_name = trim($_POST['last_name']);
         $address = trim($_POST['address']);
+        $college = trim($_POST['college']);
+        $course = trim($_POST['course']);
         $email = strtolower(trim($_POST['email']));
         $email_hash = hash('sha256', $email);
         $password = $_POST['password'];
         $confirm_password = $_POST['confirm_password'];
-        // college and course removed
 
         if ($password !== $confirm_password) {
             $error = 'Passwords do not match!';
+        } elseif ($college === '' || $course === '') {
+            $error = 'College and course are required.';
+        } elseif (!isset($college_courses[$college]) || !in_array($course, $college_courses[$college], true)) {
+            $error = 'Please choose a course that matches your college.';
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL) || !str_ends_with($email, '@bisu.edu.ph')) {
             $error = 'Email must end with @bisu.edu.ph';
         } else {
             // Detect whether the students table has the email_hash column
             $col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'email_hash'");
             $use_hash = ($col_check && mysqli_num_rows($col_check) > 0);
+            $college_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'college'");
+            $course_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'course'");
+            $use_profile_fields = (
+                $college_check && mysqli_num_rows($college_check) > 0
+                && $course_check && mysqli_num_rows($course_check) > 0
+            );
 
             if ($use_hash) {
                 $email_check = mysqli_prepare($conn, 'SELECT 1 FROM students WHERE email_hash = ? LIMIT 1');
@@ -37,13 +67,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             } else {
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
-                // Insert without college/course (those fields removed)
-                if ($use_hash) {
-                    $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, email_hash, password) VALUES (?, ?, ?, ?, ?)');
-                    mysqli_stmt_bind_param($stmt, 'sssss', $first_name, $last_name, $address, $email_hash, $hashed_password);
+                // Insert profile fields when the current schema supports them.
+                if ($use_profile_fields) {
+                    if ($use_hash) {
+                        $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, college, course, email_hash, password) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                        mysqli_stmt_bind_param($stmt, 'sssssss', $first_name, $last_name, $address, $college, $course, $email_hash, $hashed_password);
+                    } else {
+                        $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, college, course, email, password) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                        mysqli_stmt_bind_param($stmt, 'sssssss', $first_name, $last_name, $address, $college, $course, $email, $hashed_password);
+                    }
                 } else {
-                    $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, email, password) VALUES (?, ?, ?, ?, ?)');
-                    mysqli_stmt_bind_param($stmt, 'sssss', $first_name, $last_name, $address, $email, $hashed_password);
+                    if ($use_hash) {
+                        $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, email_hash, password) VALUES (?, ?, ?, ?, ?)');
+                        mysqli_stmt_bind_param($stmt, 'sssss', $first_name, $last_name, $address, $email_hash, $hashed_password);
+                    } else {
+                        $stmt = mysqli_prepare($conn, 'INSERT INTO students (first_name, last_name, complete_address, email, password) VALUES (?, ?, ?, ?, ?)');
+                        mysqli_stmt_bind_param($stmt, 'sssss', $first_name, $last_name, $address, $email, $hashed_password);
+                    }
                 }
 
                 if (mysqli_stmt_execute($stmt)) {
@@ -190,6 +230,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-weight: 700;
         }
 
+        .form-field select,
+        .form-field input,
+        .form-field textarea {
+            width: 100%;
+        }
+
+        .field-hint {
+            display: block;
+            margin-top: 0.35rem;
+            font-size: 0.84rem;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
         .password-field {
             position: relative;
             display: flex;
@@ -316,10 +370,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <textarea name="address" required></textarea>
                     </div>
                     <div class="form-field">
+                        <label>College</label>
+                        <select name="college" required>
+                            <option value="" disabled selected>Select your college</option>
+                            <option value="College of Science">College of Science</option>
+                            <option value="College of Business Management">College of Business Management</option>
+                            <option value="College of Fisheries and Marine Sciences">College of Fisheries and Marine Sciences</option>
+                            <option value="College of Teachers Education">College of Teachers Education</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Course</label>
+                        <select name="course" id="course-select" required disabled>
+                            <option value="" disabled selected>Select your college first</option>
+                        </select>
+                        <small class="field-hint">Choose a course after selecting your college.</small>
+                    </div>
+                    <div class="form-field">
                         <label>Email (@bisu.edu.ph)</label>
                         <input type="email" name="email" required placeholder="example@bisu.edu.ph">
                     </div>
-                    <!-- College & Course removed -->
                     
                     <div class="form-field full">
                         <label>Password</label>
@@ -354,9 +424,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </main>
 
     <script>
+        const collegeCourses = <?php echo json_encode($college_courses, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        const collegeSelect = document.querySelector('select[name="college"]');
+        const courseSelect = document.getElementById('course-select');
         const passwordInput = document.getElementById('register-password');
         const confirmPasswordInput = document.getElementById('confirm-password');
         const passwordMatchMessage = document.getElementById('password-match');
+
+        function setCourseOptions(college) {
+            if (!courseSelect) {
+                return;
+            }
+
+            courseSelect.innerHTML = '';
+
+            if (!college || !collegeCourses[college]) {
+                courseSelect.disabled = true;
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.disabled = true;
+                placeholder.selected = true;
+                placeholder.textContent = 'Select your college first';
+                courseSelect.appendChild(placeholder);
+                return;
+            }
+
+            courseSelect.disabled = false;
+
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.disabled = true;
+            placeholder.selected = true;
+            placeholder.textContent = 'Select your course';
+            courseSelect.appendChild(placeholder);
+
+            collegeCourses[college].forEach((course) => {
+                const option = document.createElement('option');
+                option.value = course;
+                option.textContent = course;
+                courseSelect.appendChild(option);
+            });
+        }
+
+        if (collegeSelect && courseSelect) {
+            collegeSelect.addEventListener('change', () => {
+                setCourseOptions(collegeSelect.value);
+            });
+
+            setCourseOptions(collegeSelect.value);
+        }
 
         document.querySelectorAll('.toggle-password').forEach((button) => {
             const targetId = button.getAttribute('data-target');
@@ -400,7 +516,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 e.preventDefault();
             }
         });
-        // College & Course selection removed
     </script>
 </body>
 </html>
