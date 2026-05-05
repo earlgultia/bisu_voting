@@ -254,6 +254,76 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             gap: 1.5rem;
         }
 
+        .election-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1.25rem;
+        }
+
+        .election-panel {
+            padding: 1rem;
+            border-radius: 20px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: linear-gradient(180deg, #ffffff, #f8fbff);
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
+            animation: rise 0.6s ease both;
+        }
+
+        .election-panel[open] {
+            border-color: rgba(23, 59, 114, 0.16);
+        }
+
+        .panel-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            cursor: pointer;
+            list-style: none;
+            font-weight: 800;
+            color: var(--accent-strong);
+            padding: 0.2rem 0.1rem 0.9rem;
+        }
+
+        .panel-toggle::-webkit-details-marker {
+            display: none;
+        }
+
+        .panel-toggle::after {
+            content: '+';
+            flex: 0 0 auto;
+            width: 1.9rem;
+            height: 1.9rem;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            background: rgba(23, 59, 114, 0.08);
+            color: var(--accent-strong);
+            font-size: 1.1rem;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .election-panel[open] .panel-toggle::after {
+            content: '–';
+            background: rgba(17, 124, 107, 0.12);
+        }
+
+        .panel-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-top: 0.35rem;
+            color: var(--muted);
+            font-weight: 600;
+            font-size: 0.86rem;
+        }
+
+        .panel-body {
+            display: grid;
+            gap: 1rem;
+            padding-top: 0.35rem;
+        }
+
         .position-section {
             padding: 1.55rem;
             margin-bottom: 0;
@@ -415,6 +485,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                 align-items: flex-start;
             }
 
+            .election-grid {
+                grid-template-columns: 1fr;
+            }
+
             .status-chip,
             .position-title span {
                 width: 100%;
@@ -488,59 +562,94 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             <?php if(!empty($candidates_by_group)): ?>
                 <form method="POST" class="ballot-form" onsubmit="return confirm('Submit your ballot now? You cannot change it afterward.')">
                     <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                    <?php
+                    $election_groups = [
+                        'SSG' => [],
+                        'FTP' => [],
+                    ];
 
-                    <?php foreach($candidates_by_group as $group_key => $group): ?>
-                        <div class="position-section card">
-                            <div class="position-title">
-                                <h3><?php echo h($group['election_type'] . ' Election - ' . $group['position']); ?></h3>
-                                <span><?php echo count($group['candidates']); ?> candidate(s)</span>
-                            </div>
+                    foreach ($candidates_by_group as $group_key => $group) {
+                        $election_type = strtoupper(trim($group['election_type'] ?? 'SSG'));
+                        if (!isset($election_groups[$election_type])) {
+                            $election_groups[$election_type] = [];
+                        }
+                        $election_groups[$election_type][] = [
+                            'group_key' => $group_key,
+                            'group' => $group,
+                        ];
+                    }
+                    ?>
 
-                            <div class="candidates-grid">
-                                <?php foreach($group['candidates'] as $candidate): ?>
-                                    <label class="candidate-card">
-                                        <div class="candidate-photo">
-                                            <?php
-                                            $picture_path = trim($candidate['picture'] ?? '');
-                                            $picture_src = '';
-                                            if ($picture_path !== '') {
-                                                // Check as-provided path
-                                                if (file_exists($picture_path)) {
-                                                    $picture_src = $picture_path;
-                                                } elseif (file_exists(__DIR__ . '/' . $picture_path)) {
-                                                    $picture_src = $picture_path;
-                                                } elseif (file_exists(__DIR__ . '/uploads/' . basename($picture_path))) {
-                                                    $picture_src = 'uploads/' . basename($picture_path);
-                                                }
-                                            }
-                                            if ($picture_src !== ''):
-                                            ?>
-                                                <img src="<?php echo h($picture_src); ?>" class="candidate-img" alt="<?php echo h($candidate['name']); ?>">
-                                            <?php else: ?>
-                                                <div class="photo-placeholder">
-                                                    📷 No Photo Available
+                    <div class="election-grid">
+                        <?php foreach ($election_groups as $election_type => $groups): ?>
+                            <?php if (!empty($groups)): ?>
+                                <details class="election-panel" open>
+                                    <summary class="panel-toggle">
+                                        <span><?php echo h($election_type); ?> Election</span>
+                                        <span class="panel-meta">
+                                            <span><?php echo count($groups); ?> position(s)</span>
+                                        </span>
+                                    </summary>
+
+                                    <div class="panel-body">
+                                        <?php foreach ($groups as $entry): ?>
+                                            <?php $group_key = $entry['group_key']; $group = $entry['group']; ?>
+                                            <div class="position-section card">
+                                                <div class="position-title">
+                                                    <h3><?php echo h($group['election_type'] . ' Election - ' . $group['position']); ?></h3>
+                                                    <span><?php echo count($group['candidates']); ?> candidate(s)</span>
                                                 </div>
-                                            <?php endif; ?>
-                                        </div>
 
-                                        <div class="candidate-name"><?php echo h($candidate['name']); ?></div>
+                                                <div class="candidates-grid">
+                                                    <?php foreach($group['candidates'] as $candidate): ?>
+                                                        <label class="candidate-card">
+                                                            <div class="candidate-photo">
+                                                                <?php
+                                                                $picture_path = trim($candidate['picture'] ?? '');
+                                                                $picture_src = '';
+                                                                if ($picture_path !== '') {
+                                                                    // Check as-provided path
+                                                                    if (file_exists($picture_path)) {
+                                                                        $picture_src = $picture_path;
+                                                                    } elseif (file_exists(__DIR__ . '/' . $picture_path)) {
+                                                                        $picture_src = $picture_path;
+                                                                    } elseif (file_exists(__DIR__ . '/uploads/' . basename($picture_path))) {
+                                                                        $picture_src = 'uploads/' . basename($picture_path);
+                                                                    }
+                                                                }
+                                                                if ($picture_src !== ''):
+                                                                ?>
+                                                                    <img src="<?php echo h($picture_src); ?>" class="candidate-img" alt="<?php echo h($candidate['name']); ?>">
+                                                                <?php else: ?>
+                                                                    <div class="photo-placeholder">
+                                                                        📷 No Photo Available
+                                                                    </div>
+                                                                <?php endif; ?>
+                                                            </div>
 
-                                        <div class="candidate-details">
-                                            <?php echo !empty($candidate['details']) ? nl2br(h($candidate['details'])) : 'No details provided'; ?>
-                                        </div>
+                                                            <div class="candidate-name"><?php echo h($candidate['name']); ?></div>
 
-                                        <div class="candidate-choice">
-                                            <input type="radio"
-                                                   name="votes[<?php echo h($group_key); ?>]"
-                                                   value="<?php echo (int)$candidate['id']; ?>"
-                                                   required>
-                                            <span>Vote for this candidate</span>
-                                        </div>
-                                    </label>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
+                                                            <div class="candidate-details">
+                                                                <?php echo !empty($candidate['details']) ? nl2br(h($candidate['details'])) : 'No details provided'; ?>
+                                                            </div>
+
+                                                            <div class="candidate-choice">
+                                                                <input type="radio"
+                                                                       name="votes[<?php echo h($group_key); ?>]"
+                                                                       value="<?php echo (int)$candidate['id']; ?>"
+                                                                       required>
+                                                                <span>Vote for this candidate</span>
+                                                            </div>
+                                                        </label>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </details>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
 
                     <div class="ballot-actions card">
                         <div>

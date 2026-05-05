@@ -417,7 +417,7 @@ if (isset($_GET['stats'])) {
             </div>
         </div>
         <div class="user-meta">
-            <span class="user-name">Welcome, <?php echo h($_SESSION['user_name']); ?></span>
+            <span class="user-name">Welcome, <?php echo h($_SESSION['is_admin'] ? 'Comselec' : ($_SESSION['user_name'] ?? 'Admin')); ?></span>
             <a href="logout.php" class="btn btn-ghost logout-btn">Logout</a>
         </div>
     </header>
