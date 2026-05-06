@@ -89,7 +89,7 @@ if (!$result) {
             $position = 'OTHER';
         }
 
-        $election_type = normalize_position_label($row['election_type'] ?? 'SSG');
+        $election_type = normalize_election_type($row['election_type'] ?? 'SSG');
         $row['election_type'] = $election_type;
         $row['position'] = $position;
         $row['scope_type'] = normalize_scope_type($row['scope_type'] ?? 'ALL');
@@ -109,7 +109,7 @@ if (!$result) {
 
 // Order groups by election type first, then position.
 if (!empty($candidates_by_group)) {
-    $election_order = ['SSG' => 0, 'FTP' => 1];
+    $election_order = ['SSG' => 0, 'FTP' => 1, 'INDEPENDENT' => 2];
     $group_list = array_values($candidates_by_group);
 
     usort($group_list, function ($a, $b) use ($election_order) {
@@ -642,10 +642,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                     $election_groups = [
                         'SSG' => [],
                         'FTP' => [],
+                        'INDEPENDENT' => [],
                     ];
 
                     foreach ($candidates_by_group as $group_key => $group) {
-                        $election_type = normalize_position_label($group['election_type'] ?? 'SSG');
+                        $election_type = normalize_election_type($group['election_type'] ?? 'SSG');
                         if (!isset($election_groups[$election_type])) {
                             $election_groups[$election_type] = [];
                         }
@@ -659,15 +660,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                     <div class="election-grid">
                         <?php foreach ($election_groups as $election_type => $groups): ?>
                             <?php if (!empty($groups)): ?>
-                                <details class="election-panel">
+                                <details class="election-panel" data-election-type="<?php echo h($election_type); ?>" <?php echo $election_type === 'SSG' ? 'id="ssg-election-panel"' : ''; ?>>
                                     <summary class="panel-toggle">
                                         <span class="panel-title">
                                             <?php if ($election_type === 'SSG'): ?>
                                                 <img src="uploads/ssg-logo.png" class="panel-logo" alt="SSG logo">
                                             <?php elseif ($election_type === 'FTP'): ?>
                                                 <img src="uploads/ftp-logo.png" class="panel-logo" alt="FTP logo">
+                                            <?php elseif ($election_type === 'INDEPENDENT'): ?>
+                                                <img src="uploads/independent-logo.png" class="panel-logo" alt="Independent logo">
                                             <?php endif; ?>
-                                            <span><?php echo h($election_type); ?> Election</span>
+                                            <span><?php echo h($election_type); ?> Election Candidates</span>
                                         </span>
                                         <span class="panel-meta">
                                             <span><?php echo count($groups); ?> position(s)</span>

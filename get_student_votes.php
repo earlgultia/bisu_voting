@@ -49,7 +49,7 @@ $result = mysqli_stmt_get_result($stmt);
 $votes = [];
 
 while ($row = mysqli_fetch_assoc($result)) {
-    $row['election_type'] = normalize_position_label($row['election_type'] ?? 'SSG');
+    $row['election_type'] = normalize_election_type($row['election_type'] ?? 'SSG');
     $row['position'] = normalize_position_label($row['position'] ?? '');
     $votes[] = $row;
 }

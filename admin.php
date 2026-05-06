@@ -362,7 +362,7 @@ $position_count_result = $candidate_has_election_type
     ? mysqli_query($conn, "SELECT UPPER(TRIM(election_type)) AS election_type, {$normalized_position_sql} AS position_label, COUNT(*) as total FROM candidates GROUP BY election_type, position_label")
     : mysqli_query($conn, "SELECT 'SSG' AS election_type, {$normalized_position_sql} AS position_label, COUNT(*) as total FROM candidates GROUP BY position_label");
 while ($row = mysqli_fetch_assoc($position_count_result)) {
-    $type_key = normalize_position_label($row['election_type'] ?? 'SSG');
+    $type_key = normalize_election_type($row['election_type'] ?? 'SSG');
     $position_key = normalize_position_label($row['position_label'] ?? '');
     $position_counts[$type_key][$position_key] = (int)$row['total'];
 }
@@ -620,6 +620,26 @@ if (isset($_GET['stats'])) {
         .results-accordion {
             display: grid;
             gap: 1rem;
+        }
+        .candidate-section {
+            margin-bottom: 1rem;
+        }
+        .candidate-section:last-child {
+            margin-bottom: 0;
+        }
+        .candidate-section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        .candidate-section-head h4 {
+            margin: 0;
+        }
+        .candidate-section-head .position-meta {
+            margin-left: 0;
         }
         .results-panel {
             border: 1px solid rgba(15, 23, 42, 0.08);
@@ -1137,14 +1157,14 @@ if (isset($_GET['stats'])) {
         <div class="section card">
             <h3 class="section-title">
                 Candidates and Live Results
-                <span>Sorted by position</span>
+                <span>SSG and FTP separated</span>
             </h3>
             <?php
             $candidates_by_election = [];
             $position_winners = [];
 
             while ($candidate = mysqli_fetch_assoc($candidates)) {
-                $candidate_type = normalize_position_label($candidate['election_type'] ?? 'SSG');
+                $candidate_type = normalize_election_type($candidate['election_type'] ?? 'SSG');
                 $candidate_position = normalize_position_label($candidate['position'] ?? '');
                 $candidate['election_type'] = $candidate_type;
                 $candidate['position'] = $candidate_position;
@@ -1164,188 +1184,185 @@ if (isset($_GET['stats'])) {
             ?>
             <div class="results-accordion">
                 <?php foreach (['SSG', 'FTP'] as $election_type): ?>
-                    <?php if (!empty($candidates_by_election[$election_type])): ?>
-                        <details class="results-panel" <?php echo $election_type === 'SSG' ? 'id="ssg-results"' : ''; ?>>
-                            <summary class="results-toggle">
-                                <span class="results-title">
-                                    <?php if ($election_type === 'SSG'): ?>
-                                        <img src="uploads/ssg-logo.png" class="results-logo" alt="SSG logo">
-                                    <?php elseif ($election_type === 'FTP'): ?>
-                                        <img src="uploads/ftp-logo.png" class="results-logo" alt="FTP logo">
-                                    <?php endif; ?>
-                                    <span><?php echo h($election_type); ?> Election</span>
-                                </span>
-                                <span class="position-meta"><?php echo count($candidates_by_election[$election_type]); ?> candidate(s)</span>
-                            </summary>
-
-                            <div class="results-body">
-                                <div class="table-wrap">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Picture</th>
-                                                <th>Name</th>
-                                                <th>Position</th>
-                                                <th>Scope</th>
-                                                <th>Details</th>
-                                                <th>Votes</th>
-                                                <th>Status</th>
-                                                <th>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php
-                                            $current_position = '';
-                                            foreach ($candidates_by_election[$election_type] as $candidate):
-                                                $candidate_position = normalize_position_label($candidate['position'] ?? '');
-                                                if ($candidate_position !== $current_position) {
-                                                    $current_position = $candidate_position;
-                                                    $position_total = $position_counts[$election_type][$current_position] ?? 0;
-                                                    echo "<tr class='position-row'><td colspan='8'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
-                                                }
-                                            ?>
-                                            <tr>
-                                                <td>
-                                                    <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
-                                                        <img src="<?php echo $candidate['picture']; ?>" class="candidate-img" alt="Candidate photo">
-                                                    <?php else: ?>
-                                                        <span class="muted">No photo</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td><?php echo h($candidate['name']); ?></td>
-                                                <td><?php echo h($candidate_position); ?></td>
-                                                <td>
-                                                    <?php
-                                                    $scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL');
-                                                    $scope_value = trim((string)($candidate['scope_value'] ?? ''));
-                                                    if ($scope_type === 'ALL' || $scope_value === '') {
-                                                        echo '<span class="muted">All students</span>';
-                                                    } elseif ($scope_type === 'COURSE') {
-                                                        echo '<span class="badge">Course: ' . h($scope_value) . '</span>';
-                                                    } else {
-                                                        echo '<span class="badge">College: ' . h($scope_value) . '</span>';
+                    <section class="candidate-section">
+                        <div class="candidate-section-head">
+                            <div>
+                                <h4><?php echo h($election_type); ?> Election Candidates</h4>
+                                <span class="position-meta"><?php echo !empty($candidates_by_election[$election_type]) ? count($candidates_by_election[$election_type]) : 0; ?> candidate(s)</span>
+                            </div>
+                        </div>
+                        <?php if (!empty($candidates_by_election[$election_type])): ?>
+                            <div class="results-panel" data-election-type="<?php echo h($election_type); ?>" <?php echo $election_type === 'SSG' ? 'id="ssg-results"' : ''; ?>>
+                                <div class="results-body">
+                                    <div class="table-wrap">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Picture</th>
+                                                    <th>Name</th>
+                                                    <th>Election Type</th>
+                                                    <th>Position</th>
+                                                    <th>Scope</th>
+                                                    <th>Details</th>
+                                                    <th>Votes</th>
+                                                    <th>Status</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php
+                                                $current_position = '';
+                                                foreach ($candidates_by_election[$election_type] as $candidate):
+                                                    $candidate_position = normalize_position_label($candidate['position'] ?? '');
+                                                    if ($candidate_position !== $current_position) {
+                                                        $current_position = $candidate_position;
+                                                        $position_total = $position_counts[$election_type][$current_position] ?? 0;
+                                                        echo "<tr class='position-row'><td colspan='9'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
                                                     }
-                                                    ?>
-                                                </td>
-                                                <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
-                                                <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
-                                                <td>
-                                                    <?php
-                                                    $winner_key = $election_type . '::' . $candidate['position'];
-                                                    if (isset($position_winners[$winner_key]) && $position_winners[$winner_key]['id'] == $candidate['id'] && $candidate['votes_count'] > 0) {
-                                                        echo "<span class='badge'>Leading</span>";
-                                                    }
-                                                    ?>
-                                                </td>
-                                                <td>
-                                                        <div class="candidate-actions">
-                                                            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Edit</button>
-                                                            <form method="POST" onsubmit="return confirm('Remove this candidate?')">
-                                                                <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
-                                                                <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
-                                                                <button type="submit" class="btn btn-danger btn-sm">Remove</button>
-                                                            </form>
-                                                        </div>
-                                                </td>
-                                            </tr>
-                                                <tr class="candidate-edit-row" id="candidate-edit-<?php echo (int)$candidate['id']; ?>" <?php echo $active_edit_candidate_id === (int)$candidate['id'] ? '' : 'hidden'; ?>>
-                                                    <td colspan="8">
-                                                        <div class="candidate-edit-shell">
-                                                            <div class="candidate-edit-head">
-                                                                <div>
-                                                                    <strong>Edit Candidate</strong>
-                                                                    <div class="progress-subtitle">Update the candidate photo, name, position, and details.</div>
-                                                                </div>
-                                                                <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
-                                                                    <img src="<?php echo h($candidate['picture']); ?>" class="candidate-edit-preview" alt="Candidate photo preview">
-                                                                <?php endif; ?>
+                                                ?>
+                                                <tr>
+                                                    <td>
+                                                        <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
+                                                            <img src="<?php echo $candidate['picture']; ?>" class="candidate-img" alt="Candidate photo">
+                                                        <?php else: ?>
+                                                            <span class="muted">No photo</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td><?php echo h($candidate['name']); ?></td>
+                                                    <td><span class="badge"><?php echo h($candidate['election_type']); ?></span></td>
+                                                    <td><?php echo h($candidate_position); ?></td>
+                                                    <td>
+                                                        <?php
+                                                        $scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL');
+                                                        $scope_value = trim((string)($candidate['scope_value'] ?? ''));
+                                                        if ($scope_type === 'ALL' || $scope_value === '') {
+                                                            echo '<span class="muted">All students</span>';
+                                                        } elseif ($scope_type === 'COURSE') {
+                                                            echo '<span class="badge">Course: ' . h($scope_value) . '</span>';
+                                                        } else {
+                                                            echo '<span class="badge">College: ' . h($scope_value) . '</span>';
+                                                        }
+                                                        ?>
+                                                    </td>
+                                                    <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
+                                                    <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
+                                                    <td>
+                                                        <?php
+                                                        $winner_key = $election_type . '::' . $candidate['position'];
+                                                        if (isset($position_winners[$winner_key]) && $position_winners[$winner_key]['id'] == $candidate['id'] && $candidate['votes_count'] > 0) {
+                                                            echo "<span class='badge'>Leading</span>";
+                                                        }
+                                                        ?>
+                                                    </td>
+                                                    <td>
+                                                            <div class="candidate-actions">
+                                                                <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Edit</button>
+                                                                <form method="POST" onsubmit="return confirm('Remove this candidate?')">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                                                                    <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
+                                                                    <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                                                                </form>
                                                             </div>
-                                                            <form method="POST" enctype="multipart/form-data">
-                                                                <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
-                                                                <input type="hidden" name="update_candidate" value="1">
-                                                                <input type="hidden" name="candidate_id" value="<?php echo (int)$candidate['id']; ?>">
-                                                                <div class="candidate-edit-grid">
-                                                                    <div class="form-field">
-                                                                        <label>Election Type</label>
-                                                                        <select name="election_type" class="election-type-field" data-position-select-id="edit-position-<?php echo (int)$candidate['id']; ?>" required>
-                                                                            <option value="SSG" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'SSG' ? 'selected' : ''; ?>>SSG Election</option>
-                                                                            <option value="FTP" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'FTP' ? 'selected' : ''; ?>>FTP Election</option>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Full Name</label>
-                                                                        <input type="text" name="name" required value="<?php echo h($candidate['name']); ?>">
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Position</label>
-                                                                        <select name="position" id="edit-position-<?php echo (int)$candidate['id']; ?>" class="position-select-field" required>
-                                                                            <option value="">-- Select a position --</option>
-                                                                            <optgroup label="SSG Positions">
-                                                                                <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
-                                                                                <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
-                                                                                <option value="Senators" <?php echo normalize_position_label($candidate['position']) === 'SENATORS' ? 'selected' : ''; ?>>Senators</option>
-                                                                                <option value="Governors" <?php echo normalize_position_label($candidate['position']) === 'GOVERNORS' ? 'selected' : ''; ?>>Governors</option>
-                                                                                <option value="Vice Governors" <?php echo normalize_position_label($candidate['position']) === 'VICE GOVERNORS' ? 'selected' : ''; ?>>Vice Governors</option>
-                                                                                <option value="Congressmen/Women" <?php echo normalize_position_label($candidate['position']) === 'CONGRESSMEN/WOMEN' ? 'selected' : ''; ?>>Congressmen/Women</option>
-                                                                            </optgroup>
-                                                                            <optgroup label="FTP Positions">
-                                                                                <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
-                                                                                <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
-                                                                                <option value="Auditor" <?php echo normalize_position_label($candidate['position']) === 'AUDITOR' ? 'selected' : ''; ?>>Auditor</option>
-                                                                                <option value="Executive Secretary" <?php echo normalize_position_label($candidate['position']) === 'EXECUTIVE SECRETARY' ? 'selected' : ''; ?>>Executive Secretary</option>
-                                                                                <option value="Secretary of Health & Sanitation" <?php echo normalize_position_label($candidate['position']) === 'SECRETARY OF HEALTH & SANITATION' ? 'selected' : ''; ?>>Secretary of Health & Sanitation</option>
-                                                                                <option value="Skills and Training" <?php echo normalize_position_label($candidate['position']) === 'SKILLS AND TRAINING' ? 'selected' : ''; ?>>Skills and Training</option>
-                                                                                <option value="Budget & Finance" <?php echo normalize_position_label($candidate['position']) === 'BUDGET & FINANCE' ? 'selected' : ''; ?>>Budget & Finance</option>
-                                                                                <option value="Representative" <?php echo normalize_position_label($candidate['position']) === 'REPRESENTATIVE' ? 'selected' : ''; ?>>Representative</option>
-                                                                                <option value="Independent" <?php echo normalize_position_label($candidate['position']) === 'INDEPENDENT' ? 'selected' : ''; ?>>Independent</option>
-                                                                            </optgroup>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Candidate Scope</label>
-                                                                        <?php $edit_scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL'); ?>
-                                                                        <select name="scope_type" class="scope-type-field" data-scope-value-id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" required>
-                                                                            <option value="ALL" <?php echo $edit_scope_type === 'ALL' ? 'selected' : ''; ?>>All students</option>
-                                                                            <option value="COLLEGE" <?php echo $edit_scope_type === 'COLLEGE' ? 'selected' : ''; ?>>By college</option>
-                                                                            <option value="COURSE" <?php echo $edit_scope_type === 'COURSE' ? 'selected' : ''; ?>>By course</option>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Scope Value (College/Course)</label>
-                                                                        <input type="text" name="scope_value" id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" list="scope-values" value="<?php echo h($candidate['scope_value'] ?? ''); ?>">
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Picture (Optional)</label>
-                                                                        <input type="file" name="picture" accept="image/*">
-                                                                        <div class="progress-subtitle">Leave blank to keep the current photo.</div>
-                                                                    </div>
-                                                                    <div class="form-field">
-                                                                        <label>Details/Bio</label>
-                                                                        <textarea name="details" rows="4"><?php echo h($candidate['details']); ?></textarea>
-                                                                    </div>
-                                                                </div>
-                                                                <div class="candidate-edit-footer">
-                                                                    <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Cancel</button>
-                                                                    <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
-                                                                </div>
-                                                            </form>
-                                                        </div>
                                                     </td>
                                                 </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
+                                                    <tr class="candidate-edit-row" id="candidate-edit-<?php echo (int)$candidate['id']; ?>" <?php echo $active_edit_candidate_id === (int)$candidate['id'] ? '' : 'hidden'; ?>>
+                                                        <td colspan="9">
+                                                            <div class="candidate-edit-shell">
+                                                                <div class="candidate-edit-head">
+                                                                    <div>
+                                                                        <strong>Edit Candidate</strong>
+                                                                        <div class="progress-subtitle">Update the candidate photo, name, position, and details.</div>
+                                                                    </div>
+                                                                    <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
+                                                                        <img src="<?php echo h($candidate['picture']); ?>" class="candidate-edit-preview" alt="Candidate photo preview">
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                                <form method="POST" enctype="multipart/form-data">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                                                                    <input type="hidden" name="update_candidate" value="1">
+                                                                    <input type="hidden" name="candidate_id" value="<?php echo (int)$candidate['id']; ?>">
+                                                                    <div class="candidate-edit-grid">
+                                                                        <div class="form-field">
+                                                                            <label>Election Type</label>
+                                                                            <select name="election_type" class="election-type-field" data-position-select-id="edit-position-<?php echo (int)$candidate['id']; ?>" required>
+                                                                                <option value="SSG" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'SSG' ? 'selected' : ''; ?>>SSG Election</option>
+                                                                                <option value="FTP" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'FTP' ? 'selected' : ''; ?>>FTP Election</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Full Name</label>
+                                                                            <input type="text" name="name" required value="<?php echo h($candidate['name']); ?>">
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Position</label>
+                                                                            <select name="position" id="edit-position-<?php echo (int)$candidate['id']; ?>" class="position-select-field" required>
+                                                                                <option value="">-- Select a position --</option>
+                                                                                <optgroup label="SSG Positions">
+                                                                                    <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
+                                                                                    <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
+                                                                                    <option value="Senators" <?php echo normalize_position_label($candidate['position']) === 'SENATORS' ? 'selected' : ''; ?>>Senators</option>
+                                                                                    <option value="Governors" <?php echo normalize_position_label($candidate['position']) === 'GOVERNORS' ? 'selected' : ''; ?>>Governors</option>
+                                                                                    <option value="Vice Governors" <?php echo normalize_position_label($candidate['position']) === 'VICE GOVERNORS' ? 'selected' : ''; ?>>Vice Governors</option>
+                                                                                    <option value="Congressmen/Women" <?php echo normalize_position_label($candidate['position']) === 'CONGRESSMEN/WOMEN' ? 'selected' : ''; ?>>Congressmen/Women</option>
+                                                                                </optgroup>
+                                                                                <optgroup label="FTP Positions">
+                                                                                    <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
+                                                                                    <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
+                                                                                    <option value="Auditor" <?php echo normalize_position_label($candidate['position']) === 'AUDITOR' ? 'selected' : ''; ?>>Auditor</option>
+                                                                                    <option value="Executive Secretary" <?php echo normalize_position_label($candidate['position']) === 'EXECUTIVE SECRETARY' ? 'selected' : ''; ?>>Executive Secretary</option>
+                                                                                    <option value="Secretary of Health & Sanitation" <?php echo normalize_position_label($candidate['position']) === 'SECRETARY OF HEALTH & SANITATION' ? 'selected' : ''; ?>>Secretary of Health & Sanitation</option>
+                                                                                    <option value="Skills and Training" <?php echo normalize_position_label($candidate['position']) === 'SKILLS AND TRAINING' ? 'selected' : ''; ?>>Skills and Training</option>
+                                                                                    <option value="Budget & Finance" <?php echo normalize_position_label($candidate['position']) === 'BUDGET & FINANCE' ? 'selected' : ''; ?>>Budget & Finance</option>
+                                                                                    <option value="Representative" <?php echo normalize_position_label($candidate['position']) === 'REPRESENTATIVE' ? 'selected' : ''; ?>>Representative</option>
+                                                                                    <option value="Independent" <?php echo normalize_position_label($candidate['position']) === 'INDEPENDENT' ? 'selected' : ''; ?>>Independent</option>
+                                                                                </optgroup>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Candidate Scope</label>
+                                                                            <?php $edit_scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL'); ?>
+                                                                            <select name="scope_type" class="scope-type-field" data-scope-value-id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" required>
+                                                                                <option value="ALL" <?php echo $edit_scope_type === 'ALL' ? 'selected' : ''; ?>>All students</option>
+                                                                                <option value="COLLEGE" <?php echo $edit_scope_type === 'COLLEGE' ? 'selected' : ''; ?>>By college</option>
+                                                                                <option value="COURSE" <?php echo $edit_scope_type === 'COURSE' ? 'selected' : ''; ?>>By course</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Scope Value (College/Course)</label>
+                                                                            <input type="text" name="scope_value" id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" list="scope-values" value="<?php echo h($candidate['scope_value'] ?? ''); ?>">
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Picture (Optional)</label>
+                                                                            <input type="file" name="picture" accept="image/*">
+                                                                            <div class="progress-subtitle">Leave blank to keep the current photo.</div>
+                                                                        </div>
+                                                                        <div class="form-field">
+                                                                            <label>Details/Bio</label>
+                                                                            <textarea name="details" rows="4"><?php echo h($candidate['details']); ?></textarea>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="candidate-edit-footer">
+                                                                        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Cancel</button>
+                                                                        <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
-                        </details>
-                    <?php endif; ?>
+                        <?php else: ?>
+                            <div class="notice card" style="margin-top: 0;">
+                                <h3>No <?php echo h($election_type); ?> candidates yet.</h3>
+                                <p>Add <?php echo h($election_type); ?> candidates above.</p>
+                            </div>
+                        <?php endif; ?>
+                    </section>
                 <?php endforeach; ?>
-                <?php if($candidate_count == 0): ?>
-                    <div class="notice card" style="margin-top: 0;">
-                        <h3>No candidates added yet.</h3>
-                        <p>Add candidates above.</p>
-                    </div>
-                <?php endif; ?>
             </div>
             
             <?php if(!empty($position_winners)): ?>
