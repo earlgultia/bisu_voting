@@ -59,8 +59,27 @@ if (!function_exists('h')) {
 if (!function_exists('normalize_position_label')) {
     function normalize_position_label($value): string
     {
-        $position = preg_replace('/\s+/', ' ', trim((string) $value));
+        $position = strtoupper(trim((string) $value));
+        $position = preg_replace('/^(SSG|FTP)\s*[-:]?\s*/', '', $position);
+        $position = str_replace(['-', '_'], ' ', $position);
+        $position = preg_replace('/\s+/', ' ', $position);
         return strtoupper($position);
+    }
+}
+
+if (!function_exists('candidate_position_sql_normalized')) {
+    function candidate_position_sql_normalized(string $column): string
+    {
+        $expression = 'UPPER(TRIM(' . $column . '))';
+        $expression = 'REPLACE(' . $expression . ", 'SSG ', '')";
+        $expression = 'REPLACE(' . $expression . ", 'FTP ', '')";
+        $expression = 'REPLACE(' . $expression . ", 'SSG-', '')";
+        $expression = 'REPLACE(' . $expression . ", 'FTP-', '')";
+        $expression = 'REPLACE(' . $expression . ", ' - ', ' ')";
+        $expression = 'REPLACE(' . $expression . ", '-', ' ')";
+        $expression = 'TRIM(REPLACE(REPLACE(' . $expression . ", '  ', ' '), '  ', ' '))";
+
+        return $expression;
     }
 }
 
@@ -122,7 +141,7 @@ if (!function_exists('candidate_position_order_sql')) {
         ];
 
         $buildCase = function (string $column, array $labels): string {
-            $case = 'CASE UPPER(TRIM(' . $column . ')) ';
+            $case = 'CASE ' . candidate_position_sql_normalized($column) . ' ';
             foreach ($labels as $rank => $label) {
                 $case .= 'WHEN ' . var_export($label, true) . ' THEN ' . (int) $rank . ' ';
             }

@@ -65,12 +65,14 @@ if (!$result) {
 } else {
     while ($row = mysqli_fetch_assoc($result)) {
         $raw_position = isset($row['position']) ? (string)$row['position'] : '';
-        $position = trim(strtoupper($raw_position));
+        $position = normalize_position_label($raw_position);
         if ($position === '') {
             $position = 'OTHER';
         }
 
-        $election_type = strtoupper(trim($row['election_type'] ?? 'SSG'));
+        $election_type = normalize_position_label($row['election_type'] ?? 'SSG');
+        $row['election_type'] = $election_type;
+        $row['position'] = $position;
         $group_key = $election_type . '::' . $position;
         if (!isset($candidates_by_group[$group_key])) {
             $candidates_by_group[$group_key] = [
@@ -591,7 +593,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                     ];
 
                     foreach ($candidates_by_group as $group_key => $group) {
-                        $election_type = strtoupper(trim($group['election_type'] ?? 'SSG'));
+                        $election_type = normalize_position_label($group['election_type'] ?? 'SSG');
                         if (!isset($election_groups[$election_type])) {
                             $election_groups[$election_type] = [];
                         }

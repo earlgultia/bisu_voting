@@ -235,6 +235,7 @@ if (isset($_POST['reset_election'])) {
 }
 
 // Get all candidates
+// Normalize legacy position labels such as "SSG President" and "FTP Vice - President".
 $position_order_sql = candidate_position_order_sql($candidate_has_election_type ? 'election_type' : null, 'position');
 $candidates = $candidate_has_election_type
     ? mysqli_query($conn, "SELECT * FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC")
@@ -242,12 +243,13 @@ $candidates = $candidate_has_election_type
 $total_votes = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM votes"))['total'];
 $candidate_count = mysqli_num_rows($candidates);
 $position_counts = [];
+$normalized_position_sql = candidate_position_sql_normalized('position');
 $position_count_result = $candidate_has_election_type
-    ? mysqli_query($conn, "SELECT election_type, position, COUNT(*) as total FROM candidates GROUP BY election_type, position")
-    : mysqli_query($conn, "SELECT 'SSG' AS election_type, position, COUNT(*) as total FROM candidates GROUP BY position");
+    ? mysqli_query($conn, "SELECT UPPER(TRIM(election_type)) AS election_type, {$normalized_position_sql} AS position_label, COUNT(*) as total FROM candidates GROUP BY election_type, position_label")
+    : mysqli_query($conn, "SELECT 'SSG' AS election_type, {$normalized_position_sql} AS position_label, COUNT(*) as total FROM candidates GROUP BY position_label");
 while ($row = mysqli_fetch_assoc($position_count_result)) {
-    $type_key = strtoupper(trim($row['election_type'] ?? 'SSG'));
-    $position_key = trim((string)$row['position']);
+    $type_key = normalize_position_label($row['election_type'] ?? 'SSG');
+    $position_key = normalize_position_label($row['position_label'] ?? '');
     $position_counts[$type_key][$position_key] = (int)$row['total'];
 }
 
@@ -994,14 +996,17 @@ if (isset($_GET['stats'])) {
             $position_winners = [];
 
             while ($candidate = mysqli_fetch_assoc($candidates)) {
-                $candidate_type = strtoupper(trim($candidate['election_type'] ?? 'SSG'));
+                $candidate_type = normalize_position_label($candidate['election_type'] ?? 'SSG');
+                $candidate_position = normalize_position_label($candidate['position'] ?? '');
+                $candidate['election_type'] = $candidate_type;
+                $candidate['position'] = $candidate_position;
                 if (!isset($candidates_by_election[$candidate_type])) {
                     $candidates_by_election[$candidate_type] = [];
                 }
 
                 $candidates_by_election[$candidate_type][] = $candidate;
 
-                $winner_key = $candidate_type . '::' . $candidate['position'];
+                $winner_key = $candidate_type . '::' . $candidate_position;
                 if (!isset($position_winners[$winner_key])) {
                     $position_winners[$winner_key] = $candidate;
                 } elseif ($candidate['votes_count'] > $position_winners[$winner_key]['votes_count']) {
@@ -1043,8 +1048,9 @@ if (isset($_GET['stats'])) {
                                             <?php
                                             $current_position = '';
                                             foreach ($candidates_by_election[$election_type] as $candidate):
-                                                if ($candidate['position'] !== $current_position) {
-                                                    $current_position = $candidate['position'];
+                                                $candidate_position = normalize_position_label($candidate['position'] ?? '');
+                                                if ($candidate_position !== $current_position) {
+                                                    $current_position = $candidate_position;
                                                     $position_total = $position_counts[$election_type][$current_position] ?? 0;
                                                     echo "<tr class='position-row'><td colspan='7'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
                                                 }
@@ -1058,7 +1064,7 @@ if (isset($_GET['stats'])) {
                                                     <?php endif; ?>
                                                 </td>
                                                 <td><?php echo h($candidate['name']); ?></td>
-                                                <td><?php echo h($candidate['position']); ?></td>
+                                                <td><?php echo h($candidate_position); ?></td>
                                                 <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
                                                 <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
                                                 <td>
