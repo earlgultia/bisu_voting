@@ -1,6 +1,14 @@
 <?php 
 include 'config/db.php';
 
+date_default_timezone_set('Asia/Manila');
+
+$voting_timezone = new DateTimeZone('Asia/Manila');
+$voting_starts_at = new DateTimeImmutable('2026-05-07 08:00:00', $voting_timezone);
+$voting_ends_at = new DateTimeImmutable('2026-05-07 17:00:00', $voting_timezone);
+$current_time = new DateTimeImmutable('now', $voting_timezone);
+$voting_window_open = $current_time >= $voting_starts_at && $current_time <= $voting_ends_at;
+
 // FIXED: Check if user is logged in AND is NOT admin
 // The original condition was redirecting ALL students
 if (!isset($_SESSION['user_id']) || (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == true)) {
@@ -144,7 +152,9 @@ if (!empty($candidates_by_group)) {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$student['has_voted']) {
-    if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+    if (!$voting_window_open) {
+        $error = 'Voting is only open on May 7, 2026 from 8:00 AM to 5:00 PM Philippine Time.';
+    } elseif (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
         $error = 'Your session expired. Please try again.';
     } else {
         $selected_votes = isset($_POST['votes']) && is_array($_POST['votes']) ? $_POST['votes'] : [];
@@ -624,7 +634,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                 <p>Review each candidate carefully before submitting your final vote.</p>
             </div>
             <div class="status-chip">
-                <?php echo $student['has_voted'] ? '✓ Vote submitted' : '🗳️ Voting open'; ?>
+                <?php
+                    if ($student['has_voted']) {
+                        echo '✓ Vote submitted';
+                    } elseif ($voting_window_open) {
+                        echo '🗳️ Voting open';
+                    } else {
+                        echo '⏰ Voting closed';
+                    }
+                ?>
             </div>
         </div>
         
@@ -633,6 +651,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                 <h3>Thank you for voting.</h3>
                 <p>Your ballot has been recorded successfully.</p>
                 <button type="button" class="btn btn-primary" id="view-votes-btn">View your votes</button>
+            </div>
+        <?php elseif(!$voting_window_open): ?>
+            <div class="notice card">
+                <h3>Voting is closed</h3>
+                <p>Voting is available only on May 7, 2026 from 8:00 AM to 5:00 PM Philippine Time.</p>
+                <p style="margin-top: 0.5rem; font-size: 0.9rem;">Current time: <?php echo h($current_time->format('F j, Y g:i A')); ?> PHT</p>
             </div>
         <?php else: ?>
             <?php if(!empty($candidates_by_group)): ?>
@@ -763,6 +787,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
     </main>
     
     <script>
+        const votingStartsAt = new Date(<?php echo json_encode($voting_starts_at->format(DateTimeInterface::ATOM)); ?>);
+        const votingEndsAt = new Date(<?php echo json_encode($voting_ends_at->format(DateTimeInterface::ATOM)); ?>);
+
+        const scheduleVotingWindowRefresh = () => {
+            const now = new Date();
+            let nextBoundary = null;
+
+            if (now < votingStartsAt) {
+                nextBoundary = votingStartsAt;
+            } else if (now < votingEndsAt) {
+                nextBoundary = votingEndsAt;
+            }
+
+            if (!nextBoundary) {
+                return;
+            }
+
+            const delay = Math.max(1000, nextBoundary.getTime() - now.getTime() + 1000);
+            window.setTimeout(() => {
+                window.location.reload();
+            }, delay);
+        };
+
+        scheduleVotingWindowRefresh();
+
         // Make candidate cards clickable
         document.querySelectorAll('.candidate-card').forEach(card => {
             card.addEventListener('click', function(e) {
