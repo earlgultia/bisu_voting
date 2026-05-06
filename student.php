@@ -56,8 +56,8 @@ $candidate_type_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE '
 $candidate_has_election_type = $candidate_type_check && mysqli_num_rows($candidate_type_check) > 0;
 
 $query = $candidate_has_election_type
-    ? "SELECT * FROM candidates ORDER BY CASE WHEN election_type = 'SSG' THEN 0 WHEN election_type = 'FTP' THEN 1 ELSE 2 END, position, name"
-    : "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY position, name";
+    ? "SELECT * FROM candidates ORDER BY " . candidate_position_order_sql('election_type', 'position') . ", name"
+    : "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY " . candidate_position_order_sql(null, 'position') . ", name";
 $result = mysqli_query($conn, $query);
 
 if (!$result) {
@@ -95,6 +95,13 @@ if (!empty($candidates_by_group)) {
 
         if ($left_election !== $right_election) {
             return $left_election <=> $right_election;
+        }
+
+        $left_rank = candidate_position_rank($a['election_type'] ?? 'SSG', $a['position'] ?? '');
+        $right_rank = candidate_position_rank($b['election_type'] ?? 'SSG', $b['position'] ?? '');
+
+        if ($left_rank !== $right_rank) {
+            return $left_rank <=> $right_rank;
         }
 
         return strcasecmp($a['position'] ?? '', $b['position'] ?? '');

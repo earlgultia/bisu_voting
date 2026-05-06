@@ -233,12 +233,43 @@
             .topbar {
                 flex-direction: row;
                 align-items: center;
-                gap: 0.75rem;
+                gap: 0.45rem;
                 flex-wrap: wrap;
+                padding-top: 0.65rem;
+                padding-bottom: 0.65rem;
             }
             .nav-toggle {
                 display: inline-flex;
                 margin-left: auto;
+                width: 34px;
+                height: 34px;
+                border-radius: 10px;
+            }
+            .nav-toggle-icon,
+            .nav-toggle-icon::before,
+            .nav-toggle-icon::after {
+                width: 13px;
+                height: 2px;
+            }
+            .nav-toggle-icon::before {
+                top: -4px;
+            }
+            .nav-toggle-icon::after {
+                bottom: -4px;
+            }
+            .brand {
+                gap: 0.5rem;
+            }
+            .site-logo {
+                width: 40px;
+                height: 40px;
+            }
+            .brand-title {
+                font-size: 0.92rem;
+                line-height: 1.05;
+            }
+            .brand-sub {
+                font-size: 0.74rem;
             }
             .nav-links {
                 display: none;
@@ -265,6 +296,8 @@
             .topbar {
                 padding-left: 6vw;
                 padding-right: 6vw;
+                padding-top: 0.55rem;
+                padding-bottom: 0.55rem;
             }
 
             .container {
@@ -292,15 +325,46 @@
             .hero-copy h1 {
                 max-width: none;
             }
+
+            .brand-sub {
+                display: none;
+            }
         }
         @media (max-width: 420px) {
             .topbar {
                 padding-left: 7vw;
                 padding-right: 7vw;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
             }
 
             .container {
                 width: min(1120px, 88vw);
+            }
+
+            .brand {
+                gap: 0.42rem;
+            }
+
+            .site-logo {
+                width: 36px;
+                height: 36px;
+            }
+
+            .brand-title {
+                font-size: 0.84rem;
+            }
+
+            .nav-toggle {
+                width: 32px;
+                height: 32px;
+                border-radius: 9px;
+            }
+
+            .nav-toggle-icon,
+            .nav-toggle-icon::before,
+            .nav-toggle-icon::after {
+                width: 12px;
             }
 
             .hero-copy h1 {

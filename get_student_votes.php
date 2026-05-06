@@ -18,12 +18,12 @@ $query = $candidate_has_election_type
         FROM votes v 
         JOIN candidates c ON v.candidate_id = c.id 
         WHERE v.student_id = ? 
-        ORDER BY CASE WHEN c.election_type = 'SSG' THEN 0 WHEN c.election_type = 'FTP' THEN 1 ELSE 2 END, c.position"
+        ORDER BY " . candidate_position_order_sql('c.election_type', 'c.position')
     : "SELECT c.id, c.name AS candidate_name, c.position, 'SSG' AS election_type 
         FROM votes v 
         JOIN candidates c ON v.candidate_id = c.id 
         WHERE v.student_id = ? 
-        ORDER BY c.position";
+        ORDER BY " . candidate_position_order_sql(null, 'c.position') . ";
 
 $stmt = mysqli_prepare($conn, $query);
 mysqli_stmt_bind_param($stmt, 'i', $student_id);

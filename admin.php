@@ -89,37 +89,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_candidate'])) 
     }
 }
 
-// Reset election (delete all votes and reset voting status)
+// Reset election (clear votes and reset voting status)
 if (isset($_POST['reset_election'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
         $error = 'Your session expired. Please try again.';
     } else {
-        mysqli_query($conn, "TRUNCATE TABLE votes");
-        mysqli_query($conn, "UPDATE candidates SET votes_count = 0");
+        mysqli_begin_transaction($conn);
+
+        $votes_cleared = mysqli_query($conn, "DELETE FROM votes");
+        $counts_reset = mysqli_query($conn, "UPDATE candidates SET votes_count = 0");
+
         // Reset students' voting status but try to avoid referencing missing columns
+        $students_reset = true;
         $col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'is_admin'");
         if ($col_check && mysqli_num_rows($col_check) > 0) {
-            mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE is_admin = 0");
+            $students_reset = (bool) mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE is_admin = 0");
         } else {
             // fallback: prefer email_hash if present, otherwise plaintext email
             $hash_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'email_hash'");
             if ($hash_check && mysqli_num_rows($hash_check) > 0) {
                 $admin_hash = hash('sha256', strtolower('admin.ssg@bisu.edu.ph'));
                 $admin_hash_esc = mysqli_real_escape_string($conn, $admin_hash);
-                mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE email_hash != '" . $admin_hash_esc . "'");
+                $students_reset = (bool) mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE email_hash != '" . $admin_hash_esc . "'");
             } else {
                 $admin_email_esc = mysqli_real_escape_string($conn, 'admin.ssg@bisu.edu.ph');
-                mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE email != '" . $admin_email_esc . "'");
+                $students_reset = (bool) mysqli_query($conn, "UPDATE students SET has_voted = FALSE WHERE email != '" . $admin_email_esc . "'");
             }
         }
-        $success = 'Election has been reset for the next election!';
+
+        if ($votes_cleared && $counts_reset && $students_reset) {
+            mysqli_commit($conn);
+            $success = 'Election has been reset for the next election!';
+        } else {
+            mysqli_rollback($conn);
+            $error = 'Unable to reset the election. Please try again.';
+        }
     }
 }
 
 // Get all candidates
+$position_order_sql = candidate_position_order_sql($candidate_has_election_type ? 'election_type' : null, 'position');
 $candidates = $candidate_has_election_type
-    ? mysqli_query($conn, "SELECT * FROM candidates ORDER BY CASE WHEN election_type = 'SSG' THEN 0 WHEN election_type = 'FTP' THEN 1 ELSE 2 END, position, votes_count DESC, name ASC")
-    : mysqli_query($conn, "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY position, votes_count DESC, name ASC");
+    ? mysqli_query($conn, "SELECT * FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC")
+    : mysqli_query($conn, "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC");
 $total_votes = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM votes"))['total'];
 $candidate_count = mysqli_num_rows($candidates);
 $position_counts = [];
@@ -513,6 +525,36 @@ if (isset($_GET['stats'])) {
             border: 1px solid rgba(17, 124, 107, 0.18);
             border-radius: var(--radius);
         }
+        .winners-summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            cursor: pointer;
+            list-style: none;
+        }
+        .winners-summary::-webkit-details-marker {
+            display: none;
+        }
+        .winners-summary::after {
+            content: '+';
+            flex: 0 0 auto;
+            width: 1.9rem;
+            height: 1.9rem;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            background: rgba(23, 59, 114, 0.08);
+            color: var(--accent-strong);
+            font-size: 1.1rem;
+        }
+        .winners[open] .winners-summary::after {
+            content: '–';
+            background: rgba(17, 124, 107, 0.12);
+        }
+        .winners-body {
+            margin-top: 1rem;
+        }
         @media (max-width: 900px) {
             .dashboard-header,
             .user-meta,
@@ -895,8 +937,12 @@ if (isset($_GET['stats'])) {
             </div>
             
             <?php if(!empty($position_winners)): ?>
-                <div class="winners">
-                    <h4>Current Winners (by position)</h4>
+                    <details class="winners">
+                        <summary class="winners-summary">
+                            <h4>Current Winners (by position)</h4>
+                            <span class="position-meta"><?php echo count($position_winners); ?> position(s)</span>
+                        </summary>
+                        <div class="winners-body">
                     <div class="winners-grid">
                         <?php foreach($position_winners as $pos => $winner): ?>
                             <div class="winner-card winner-card--text">
@@ -915,7 +961,8 @@ if (isset($_GET['stats'])) {
                             </div>
                         <?php endforeach; ?>
                     </div>
-                </div>
+                    </div>
+                </details>
             <?php endif; ?>
         </div>
     </main>

@@ -55,4 +55,90 @@ if (!function_exists('h')) {
         return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
     }
 }
+
+if (!function_exists('normalize_position_label')) {
+    function normalize_position_label($value): string
+    {
+        $position = preg_replace('/\s+/', ' ', trim((string) $value));
+        return strtoupper($position);
+    }
+}
+
+if (!function_exists('candidate_position_rank')) {
+    function candidate_position_rank(string $electionType, string $position): int
+    {
+        static $orders = [
+            'SSG' => [
+                'PRESIDENT' => 0,
+                'VICE PRESIDENT' => 1,
+                'SENATORS' => 2,
+                'GOVERNORS' => 3,
+                'VICE GOVERNORS' => 4,
+                'CONGRESSMEN/WOMEN' => 5,
+            ],
+            'FTP' => [
+                'PRESIDENT' => 0,
+                'VICE PRESIDENT' => 1,
+                'AUDITOR' => 2,
+                'EXECUTIVE SECRETARY' => 3,
+                'SECRETARY OF HEALTH & SANITATION' => 4,
+                'SKILLS AND TRAINING' => 5,
+                'BUDGET & FINANCE' => 6,
+                'REPRESENTATIVE' => 7,
+                'INDEPENDENT' => 8,
+            ],
+        ];
+
+        $electionKey = normalize_position_label($electionType);
+        $positionKey = normalize_position_label($position);
+
+        return $orders[$electionKey][$positionKey] ?? 999;
+    }
+}
+
+if (!function_exists('candidate_position_order_sql')) {
+    function candidate_position_order_sql(?string $electionColumn = 'election_type', string $positionColumn = 'position'): string
+    {
+        static $orders = [
+            'SSG' => [
+                'PRESIDENT',
+                'VICE PRESIDENT',
+                'SENATORS',
+                'GOVERNORS',
+                'VICE GOVERNORS',
+                'CONGRESSMEN/WOMEN',
+            ],
+            'FTP' => [
+                'PRESIDENT',
+                'VICE PRESIDENT',
+                'AUDITOR',
+                'EXECUTIVE SECRETARY',
+                'SECRETARY OF HEALTH & SANITATION',
+                'SKILLS AND TRAINING',
+                'BUDGET & FINANCE',
+                'REPRESENTATIVE',
+                'INDEPENDENT',
+            ],
+        ];
+
+        $buildCase = function (string $column, array $labels): string {
+            $case = 'CASE UPPER(TRIM(' . $column . ')) ';
+            foreach ($labels as $rank => $label) {
+                $case .= 'WHEN ' . var_export($label, true) . ' THEN ' . (int) $rank . ' ';
+            }
+            $case .= 'ELSE 999 END';
+            return $case;
+        };
+
+        if ($electionColumn === null || $electionColumn === '') {
+            return $buildCase($positionColumn, $orders['SSG']);
+        }
+
+        return 'CASE '
+            . 'WHEN UPPER(TRIM(' . $electionColumn . ')) = \'' . 'SSG' . '\' THEN ' . $buildCase($positionColumn, $orders['SSG']) . ' '
+            . 'WHEN UPPER(TRIM(' . $electionColumn . ')) = \'' . 'FTP' . '\' THEN ' . $buildCase($positionColumn, $orders['FTP']) . ' '
+            . 'ELSE ' . $buildCase($positionColumn, $orders['SSG']) . ' '
+            . 'END';
+    }
+}
 ?>
