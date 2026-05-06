@@ -14,6 +14,8 @@ if (!$candidate_has_election_type) {
     }
 }
 
+$active_edit_candidate_id = null;
+
 // Add candidate
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_candidate'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
@@ -59,6 +61,111 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_candidate'])) {
             $error = 'Unable to add candidate.';
         }
         mysqli_stmt_close($stmt);
+    }
+}
+
+// Update candidate
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_candidate'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+        $error = 'Your session expired. Please try again.';
+    } else {
+        $candidate_id = (int)($_POST['candidate_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $position = trim($_POST['position'] ?? '');
+        $details = trim($_POST['details'] ?? '');
+        $election_type = strtoupper(trim($_POST['election_type'] ?? 'SSG'));
+
+        if (!in_array($election_type, ['SSG', 'FTP'], true)) {
+            $election_type = 'SSG';
+        }
+
+        if ($candidate_id <= 0 || $name === '' || $position === '') {
+            $error = 'Please complete the candidate details before saving.';
+            $active_edit_candidate_id = $candidate_id > 0 ? $candidate_id : null;
+        } else {
+            $current_picture = '';
+            $fetch_candidate = mysqli_prepare($conn, 'SELECT picture FROM candidates WHERE id = ?');
+            mysqli_stmt_bind_param($fetch_candidate, 'i', $candidate_id);
+            mysqli_stmt_execute($fetch_candidate);
+            mysqli_stmt_bind_result($fetch_candidate, $current_picture);
+            $candidate_exists = mysqli_stmt_fetch($fetch_candidate);
+            mysqli_stmt_close($fetch_candidate);
+
+            if (!$candidate_exists) {
+                $error = 'Candidate not found.';
+                $active_edit_candidate_id = $candidate_id;
+            } else {
+                $picture_path = $current_picture ?: '';
+                $new_picture_uploaded = false;
+                $new_picture_temp = '';
+
+                if (isset($_FILES['picture']) && $_FILES['picture']['error'] !== UPLOAD_ERR_NO_FILE) {
+                    if ($_FILES['picture']['error'] === UPLOAD_ERR_OK) {
+                        $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+                        $filename = $_FILES['picture']['name'];
+                        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+                        if (in_array($ext, $allowed, true)) {
+                            $upload_dir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads';
+                            if (!is_dir($upload_dir)) {
+                                mkdir($upload_dir, 0775, true);
+                            }
+
+                            $safe_name = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '', basename($filename));
+                            $target_path = $upload_dir . DIRECTORY_SEPARATOR . $safe_name;
+                            if (move_uploaded_file($_FILES['picture']['tmp_name'], $target_path)) {
+                                $picture_path = 'uploads/' . $safe_name;
+                                $new_picture_uploaded = true;
+                                $new_picture_temp = $target_path;
+                            } else {
+                                $error = 'Unable to upload the candidate photo.';
+                            }
+                        } else {
+                            $error = 'Invalid picture type. Please upload a JPG, JPEG, PNG, or GIF file.';
+                        }
+                    } else {
+                        $error = 'Unable to upload the candidate photo.';
+                    }
+                }
+
+                if (!isset($error)) {
+                    mysqli_begin_transaction($conn);
+
+                    if ($candidate_has_election_type) {
+                        $stmt = mysqli_prepare($conn, 'UPDATE candidates SET election_type = ?, name = ?, position = ?, details = ?, picture = ? WHERE id = ?');
+                        mysqli_stmt_bind_param($stmt, 'sssssi', $election_type, $name, $position, $details, $picture_path, $candidate_id);
+                    } else {
+                        $stmt = mysqli_prepare($conn, 'UPDATE candidates SET name = ?, position = ?, details = ?, picture = ? WHERE id = ?');
+                        mysqli_stmt_bind_param($stmt, 'ssssi', $name, $position, $details, $picture_path, $candidate_id);
+                    }
+
+                    $update_ok = mysqli_stmt_execute($stmt);
+                    mysqli_stmt_close($stmt);
+
+                    if ($update_ok) {
+                        mysqli_commit($conn);
+
+                        if ($new_picture_uploaded && $current_picture && $current_picture !== $picture_path) {
+                            $old_picture_path = __DIR__ . DIRECTORY_SEPARATOR . ltrim($current_picture, '/\\');
+                            if (is_file($old_picture_path)) {
+                                @unlink($old_picture_path);
+                            }
+                        }
+
+                        $success = 'Candidate updated successfully!';
+                    } else {
+                        mysqli_rollback($conn);
+                        if ($new_picture_uploaded && is_file($new_picture_temp)) {
+                            @unlink($new_picture_temp);
+                        }
+                        $error = 'Unable to update candidate. Please try again.';
+                        $active_edit_candidate_id = $candidate_id;
+                    }
+                } elseif ($new_picture_uploaded && is_file($new_picture_temp)) {
+                    @unlink($new_picture_temp);
+                    $active_edit_candidate_id = $candidate_id;
+                }
+            }
+        }
     }
 }
 
@@ -507,6 +614,55 @@ if (isset($_GET['stats'])) {
             padding: 0.5rem 0.9rem;
             font-size: 0.85rem;
         }
+        .candidate-actions {
+            display: flex;
+            gap: 0.55rem;
+            flex-wrap: wrap;
+        }
+        .candidate-actions form {
+            margin: 0;
+        }
+        .candidate-edit-row td {
+            padding: 0;
+            background: linear-gradient(180deg, #fbfdff, #f4f8fc);
+        }
+        .candidate-edit-shell {
+            padding: 1rem;
+            border-top: 1px solid rgba(15, 23, 42, 0.06);
+        }
+        .candidate-edit-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .candidate-edit-head strong {
+            font-size: 1rem;
+        }
+        .candidate-edit-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+        .candidate-edit-grid .form-field:last-child {
+            grid-column: 1 / -1;
+        }
+        .candidate-edit-preview {
+            width: 88px;
+            height: 88px;
+            border-radius: 18px;
+            object-fit: cover;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+        }
+        .candidate-edit-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.65rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
         .grid-2 {
             display: grid;
             grid-template-columns: 1.1fr 0.9fr;
@@ -682,6 +838,7 @@ if (isset($_GET['stats'])) {
     </header>
     
     <main class="container">
+        <?php if(isset($error)) echo "<div class='alert alert-error'>$error</div>"; ?>
         <?php if(isset($success)) echo "<div class='alert alert-success'>$success</div>"; ?>
         
         <div class="stats-card card">
@@ -913,13 +1070,66 @@ if (isset($_GET['stats'])) {
                                                     ?>
                                                 </td>
                                                 <td>
-                                                    <form method="POST" onsubmit="return confirm('Remove this candidate?')">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
-                                                        <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
-                                                        <button type="submit" class="btn btn-danger btn-sm">Remove</button>
-                                                    </form>
+                                                        <div class="candidate-actions">
+                                                            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Edit</button>
+                                                            <form method="POST" onsubmit="return confirm('Remove this candidate?')">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                                                                <input type="hidden" name="remove_candidate" value="<?php echo (int)$candidate['id']; ?>">
+                                                                <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                                                            </form>
+                                                        </div>
                                                 </td>
                                             </tr>
+                                                <tr class="candidate-edit-row" id="candidate-edit-<?php echo (int)$candidate['id']; ?>" <?php echo $active_edit_candidate_id === (int)$candidate['id'] ? '' : 'hidden'; ?>>
+                                                    <td colspan="7">
+                                                        <div class="candidate-edit-shell">
+                                                            <div class="candidate-edit-head">
+                                                                <div>
+                                                                    <strong>Edit Candidate</strong>
+                                                                    <div class="progress-subtitle">Update the candidate photo, name, position, and details.</div>
+                                                                </div>
+                                                                <?php if($candidate['picture'] && file_exists($candidate['picture'])): ?>
+                                                                    <img src="<?php echo h($candidate['picture']); ?>" class="candidate-edit-preview" alt="Candidate photo preview">
+                                                                <?php endif; ?>
+                                                            </div>
+                                                            <form method="POST" enctype="multipart/form-data">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo h(csrf_token()); ?>">
+                                                                <input type="hidden" name="update_candidate" value="1">
+                                                                <input type="hidden" name="candidate_id" value="<?php echo (int)$candidate['id']; ?>">
+                                                                <div class="candidate-edit-grid">
+                                                                    <div class="form-field">
+                                                                        <label>Election Type</label>
+                                                                        <select name="election_type" required>
+                                                                            <option value="SSG" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'SSG' ? 'selected' : ''; ?>>SSG Election</option>
+                                                                            <option value="FTP" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'FTP' ? 'selected' : ''; ?>>FTP Election</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Full Name</label>
+                                                                        <input type="text" name="name" required value="<?php echo h($candidate['name']); ?>">
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Position</label>
+                                                                        <input type="text" name="position" required value="<?php echo h($candidate['position']); ?>">
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Picture (Optional)</label>
+                                                                        <input type="file" name="picture" accept="image/*">
+                                                                        <div class="progress-subtitle">Leave blank to keep the current photo.</div>
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Details/Bio</label>
+                                                                        <textarea name="details" rows="4"><?php echo h($candidate['details']); ?></textarea>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="candidate-edit-footer">
+                                                                    <button type="button" class="btn btn-ghost btn-sm" onclick="toggleCandidateEditor('candidate-edit-<?php echo (int)$candidate['id']; ?>')">Cancel</button>
+                                                                    <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </td>
+                                                </tr>
                                             <?php endforeach; ?>
                                         </tbody>
                                     </table>
@@ -1065,6 +1275,18 @@ if (isset($_GET['stats'])) {
             }
 
             setInterval(checkForVoteUpdates, 5000);
+
+            function toggleCandidateEditor(rowId) {
+                const row = document.getElementById(rowId);
+                if (!row) {
+                    return;
+                }
+
+                row.hidden = !row.hidden;
+                if (!row.hidden) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
 
         </script>
 </body>
