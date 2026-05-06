@@ -44,12 +44,7 @@ CREATE TABLE `candidates` (
 -- Dumping data for table `candidates`
 --
 
-INSERT INTO `candidates` (`id`, `election_type`, `name`, `position`, `details`, `picture`, `votes_count`, `created_at`) VALUES
-(11, 'FTP', 'Frankie Galagar', 'FTP President', 'Kahoy2x', 'uploads/1777945566_708e74b232a8b32bc86d14314197b84f.jpg', 0, '2026-05-05 01:46:06'),
-(12, 'SSG', 'Earl O. Gultia', 'SSG President', 'Kahoy', 'uploads/1777945604_0fdf235918d88d3cd8927aff3c6d5e93.jpg', 0, '2026-05-05 01:46:44'),
-(13, 'SSG', 'KC Alicarte', 'SSG Vice President', 'Bato', 'uploads/1777945843_0fdf235918d88d3cd8927aff3c6d5e93.jpg', 0, '2026-05-05 01:50:43'),
-(14, 'FTP', 'Charlyn Curan', 'FTP Vice - President', 'Bato', 'uploads/1777945907_708e74b232a8b32bc86d14314197b84f.jpg', 0, '2026-05-05 01:51:47'),
-(15, 'SSG', 'Rodel Tuyor', 'SSG President', 'Mo dagan ko', 'uploads/1777950608_708e74b232a8b32bc86d14314197b84f.jpg', 0, '2026-05-05 03:10:08');
+
 
 -- --------------------------------------------------------
 
@@ -74,9 +69,6 @@ CREATE TABLE `students` (
 --
 -- Dumping data for table `students`
 --
-
-INSERT INTO `students` (`id`, `first_name`, `last_name`, `complete_address`, `email_hash`, `password`, `has_voted`, `created_at`, `college`, `course`, `is_admin`) VALUES
-(1, 'Admin', 'SSG', 'BISU Main Campus', 'fa729de9cb164d05a5e906c220b1db521e71dd0faf5aa5bbfe0fdecc7f2adc1f', '$2y$10$xQEhzUv7m83/zGNdZ6kQk.bnDPKncFcvyBIqvPt40Ts/phDlsznwO', 0, '2026-05-03 15:24:18', 'College of Science', '', 1);
 
 -- --------------------------------------------------------
 
