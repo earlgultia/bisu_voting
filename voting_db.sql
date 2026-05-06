@@ -30,6 +30,8 @@ SET time_zone = "+00:00";
 CREATE TABLE `candidates` (
   `id` int(11) NOT NULL,
   `election_type` varchar(20) NOT NULL DEFAULT 'SSG',
+  `scope_type` varchar(20) NOT NULL DEFAULT 'ALL',
+  `scope_value` varchar(150) NOT NULL DEFAULT '',
   `name` varchar(100) NOT NULL,
   `position` varchar(50) NOT NULL,
   `details` text DEFAULT NULL,

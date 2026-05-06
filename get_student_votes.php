@@ -7,6 +7,11 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+if (!empty($_SESSION['is_admin'])) {
+    echo json_encode(['success' => false, 'message' => 'Student account required']);
+    exit();
+}
+
 $student_id = $_SESSION['user_id'];
 
 // Get student's votes with candidate details
@@ -23,11 +28,23 @@ $query = $candidate_has_election_type
         FROM votes v 
         JOIN candidates c ON v.candidate_id = c.id 
         WHERE v.student_id = ? 
-        ORDER BY " . candidate_position_order_sql(null, 'c.position') . ";
+        ORDER BY " . candidate_position_order_sql(null, 'c.position');
 
 $stmt = mysqli_prepare($conn, $query);
+if (!$stmt) {
+    echo json_encode(['success' => false, 'message' => 'Unable to load votes right now.', 'votes' => []]);
+    exit();
+}
+
 mysqli_stmt_bind_param($stmt, 'i', $student_id);
-mysqli_stmt_execute($stmt);
+$executed = mysqli_stmt_execute($stmt);
+
+if (!$executed) {
+    mysqli_stmt_close($stmt);
+    echo json_encode(['success' => false, 'message' => 'Unable to load votes right now.', 'votes' => []]);
+    exit();
+}
+
 $result = mysqli_stmt_get_result($stmt);
 $votes = [];
 
@@ -37,18 +54,11 @@ while ($row = mysqli_fetch_assoc($result)) {
     $votes[] = $row;
 }
 
-if (count($votes) > 0) {
-    echo json_encode([
-        'success' => true,
-        'votes' => $votes,
-        'count' => count($votes)
-    ]);
-} else {
-    echo json_encode([
-        'success' => false,
-        'message' => 'No votes found',
-        'votes' => []
-    ]);
-}
+echo json_encode([
+    'success' => true,
+    'votes' => $votes,
+    'count' => count($votes),
+]);
+
 mysqli_stmt_close($stmt);
 ?>

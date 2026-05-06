@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id']) || (isset($_SESSION['is_admin']) && $_SESSION['
 $student_id = $_SESSION['user_id'];
 
 // Check if student has already voted
-$stmt = mysqli_prepare($conn, 'SELECT has_voted FROM students WHERE id = ?');
+$stmt = mysqli_prepare($conn, 'SELECT has_voted, college, course FROM students WHERE id = ?');
 mysqli_stmt_bind_param($stmt, 'i', $student_id);
 mysqli_stmt_execute($stmt);
 $result = mysqli_stmt_get_result($stmt);
@@ -20,8 +20,11 @@ mysqli_stmt_close($stmt);
 
 if (!$student) {
     $error = 'Unable to load student information.';
-    $student = ['has_voted' => false];
+    $student = ['has_voted' => false, 'college' => '', 'course' => ''];
 }
+
+$student_college = trim((string)($student['college'] ?? ''));
+$student_course = trim((string)($student['course'] ?? ''));
 
 // Ensure `has_voted` matches actual votes in the votes table.
 if (!empty($student) && isset($student['has_voted'])) {
@@ -54,16 +57,32 @@ if (!empty($student) && isset($student['has_voted'])) {
 $candidates_by_group = [];
 $candidate_type_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE 'election_type'");
 $candidate_has_election_type = $candidate_type_check && mysqli_num_rows($candidate_type_check) > 0;
+$candidate_scope_type_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE 'scope_type'");
+$candidate_scope_value_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE 'scope_value'");
+$candidate_has_scope_columns = (
+    $candidate_scope_type_check && mysqli_num_rows($candidate_scope_type_check) > 0
+    && $candidate_scope_value_check && mysqli_num_rows($candidate_scope_value_check) > 0
+);
 
 $query = $candidate_has_election_type
-    ? "SELECT * FROM candidates ORDER BY " . candidate_position_order_sql('election_type', 'position') . ", name"
-    : "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY " . candidate_position_order_sql(null, 'position') . ", name";
+    ? "SELECT *, " . ($candidate_has_scope_columns ? "scope_type, scope_value" : "'ALL' AS scope_type, '' AS scope_value") . " FROM candidates ORDER BY " . candidate_position_order_sql('election_type', 'position') . ", name"
+    : "SELECT *, 'SSG' AS election_type, 'ALL' AS scope_type, '' AS scope_value FROM candidates ORDER BY " . candidate_position_order_sql(null, 'position') . ", name";
 $result = mysqli_query($conn, $query);
 
 if (!$result) {
     $error = 'Database Error: ' . mysqli_error($conn);
 } else {
     while ($row = mysqli_fetch_assoc($result)) {
+        if (!candidate_visible_to_student(
+            $row['position'] ?? '',
+            $row['scope_type'] ?? 'ALL',
+            $row['scope_value'] ?? '',
+            $student_college,
+            $student_course
+        )) {
+            continue;
+        }
+
         $raw_position = isset($row['position']) ? (string)$row['position'] : '';
         $position = normalize_position_label($raw_position);
         if ($position === '') {
@@ -73,6 +92,8 @@ if (!$result) {
         $election_type = normalize_position_label($row['election_type'] ?? 'SSG');
         $row['election_type'] = $election_type;
         $row['position'] = $position;
+        $row['scope_type'] = normalize_scope_type($row['scope_type'] ?? 'ALL');
+        $row['scope_value'] = trim((string)($row['scope_value'] ?? ''));
         $group_key = $election_type . '::' . $position;
         if (!isset($candidates_by_group[$group_key])) {
             $candidates_by_group[$group_key] = [
@@ -134,19 +155,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
             $error = 'No candidates available yet.';
         } else {
             foreach ($candidates_by_group as $group_key => $group) {
-                if (!isset($selected_votes[$group_key])) {
-                    $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
-                    continue;
-                }
-
-                $candidate_id = (int)$selected_votes[$group_key];
                 $valid_ids = array_map('intval', array_column($group['candidates'], 'id'));
-                if (!in_array($candidate_id, $valid_ids, true)) {
-                    $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
-                    continue;
-                }
+                $is_senator_group = stripos((string)($group['position'] ?? ''), 'senator') !== false;
 
-                $chosen_candidates[] = $candidate_id;
+                if ($is_senator_group) {
+                    $selected_for_group = $selected_votes[$group_key] ?? [];
+                    if (!is_array($selected_for_group)) {
+                        $selected_for_group = [$selected_for_group];
+                    }
+
+                    $selected_for_group = array_values(array_unique(array_filter(array_map('intval', $selected_for_group), function ($id) {
+                        return $id > 0;
+                    })));
+
+                    if (empty($selected_for_group)) {
+                        $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
+                        continue;
+                    }
+
+                    $group_valid = true;
+                    foreach ($selected_for_group as $candidate_id) {
+                        if (!in_array($candidate_id, $valid_ids, true)) {
+                            $group_valid = false;
+                            break;
+                        }
+                        $chosen_candidates[] = $candidate_id;
+                    }
+
+                    if (!$group_valid) {
+                        $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
+                    }
+                } else {
+                    if (!isset($selected_votes[$group_key])) {
+                        $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
+                        continue;
+                    }
+
+                    $candidate_id = (int)$selected_votes[$group_key];
+                    if (!in_array($candidate_id, $valid_ids, true)) {
+                        $missing_positions[] = $group['election_type'] . ' ' . $group['position'];
+                        continue;
+                    }
+
+                    $chosen_candidates[] = $candidate_id;
+                }
             }
 
             if (!empty($missing_positions)) {
@@ -625,13 +677,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                                     <div class="panel-body">
                                         <?php foreach ($groups as $entry): ?>
                                             <?php $group_key = $entry['group_key']; $group = $entry['group']; ?>
+                                            <?php $is_senator_group = stripos((string)($group['position'] ?? ''), 'senator') !== false; ?>
                                             <div class="position-section card">
                                                 <div class="position-title">
                                                     <h3><?php echo h($group['election_type'] . ' Election - ' . $group['position']); ?></h3>
-                                                    <span><?php echo count($group['candidates']); ?> candidate(s)</span>
+                                                    <span>
+                                                        <?php if ($is_senator_group): ?>
+                                                            Select 1 or more senators
+                                                        <?php else: ?>
+                                                            <?php echo count($group['candidates']); ?> candidate(s)
+                                                        <?php endif; ?>
+                                                    </span>
                                                 </div>
 
-                                                <div class="candidates-grid">
+                                                <div class="candidates-grid" <?php echo $is_senator_group ? 'data-senator-group="' . h($group_key) . '"' : ''; ?>>
                                                     <?php foreach($group['candidates'] as $candidate): ?>
                                                         <label class="candidate-card">
                                                             <div class="candidate-photo">
@@ -665,10 +724,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                                                             </div>
 
                                                             <div class="candidate-choice">
-                                                                <input type="radio"
-                                                                       name="votes[<?php echo h($group_key); ?>]"
+                                                                <input type="<?php echo $is_senator_group ? 'checkbox' : 'radio'; ?>"
+                                                                       name="votes[<?php echo h($group_key); ?>]<?php echo $is_senator_group ? '[]' : ''; ?>"
                                                                        value="<?php echo (int)$candidate['id']; ?>"
-                                                                       required>
+                                                                       <?php echo $is_senator_group ? '' : 'required'; ?>>
                                                                 <span>Vote for this candidate</span>
                                                             </div>
                                                         </label>
@@ -704,7 +763,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
         // Make candidate cards clickable
         document.querySelectorAll('.candidate-card').forEach(card => {
             card.addEventListener('click', function(e) {
-                if (e.target.type !== 'radio') {
+                if (e.target.type !== 'radio' && e.target.type !== 'checkbox') {
                     const radio = this.querySelector('input[type="radio"]');
                     if (radio) {
                         radio.checked = true;
@@ -712,19 +771,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                 }
             });
         });
+
+        // For senator groups, require at least one checkbox before submit.
+        document.querySelectorAll('[data-senator-group]').forEach(group => {
+            const checkboxes = group.querySelectorAll('input[type="checkbox"]');
+            if (checkboxes.length === 0) {
+                return;
+            }
+
+            const syncRequiredState = () => {
+                const hasChecked = Array.from(checkboxes).some(checkbox => checkbox.checked);
+                checkboxes.forEach(checkbox => {
+                    checkbox.required = false;
+                });
+
+                if (!hasChecked) {
+                    checkboxes[0].required = true;
+                }
+            };
+
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', syncRequiredState);
+            });
+
+            syncRequiredState();
+        });
         
         // View submitted votes
         const viewVotesBtn = document.getElementById('view-votes-btn');
         if (viewVotesBtn) {
             viewVotesBtn.addEventListener('click', () => {
                 fetch('get_student_votes.php')
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Request failed');
+                        }
+                        return response.json();
+                    })
                     .then(data => {
-                        if (data.success && data.votes.length > 0) {
+                        const votes = Array.isArray(data.votes) ? data.votes : [];
+                        if (votes.length > 0) {
                             let votesHTML = '<div style="text-align: left;">';
                             votesHTML += '<div style="display: grid; gap: 1rem;">';
                             
-                            data.votes.forEach(vote => {
+                            votes.forEach(vote => {
                                 const electionLabel = vote.election_type ? `${vote.election_type} Election` : 'Election';
                                 votesHTML += `
                                     <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #2c3e50;">
@@ -745,7 +835,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_ballot']) && !$
                         } else {
                             Swal.fire({
                                 title: 'No votes found',
-                                text: 'You haven\'t submitted any votes yet.',
+                                text: data && data.message ? data.message : 'You haven\'t submitted any votes yet.',
                                 icon: 'info',
                                 confirmButtonText: 'OK'
                             });

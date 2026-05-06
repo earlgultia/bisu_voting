@@ -14,6 +14,59 @@ if (!$candidate_has_election_type) {
     }
 }
 
+$candidate_scope_type_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE 'scope_type'");
+$candidate_scope_value_check = mysqli_query($conn, "SHOW COLUMNS FROM candidates LIKE 'scope_value'");
+$candidate_has_scope_columns = (
+    $candidate_scope_type_check && mysqli_num_rows($candidate_scope_type_check) > 0
+    && $candidate_scope_value_check && mysqli_num_rows($candidate_scope_value_check) > 0
+);
+
+if (!$candidate_has_scope_columns) {
+    $scope_type_added = true;
+    $scope_value_added = true;
+
+    if (!$candidate_scope_type_check || mysqli_num_rows($candidate_scope_type_check) === 0) {
+        $scope_type_added = mysqli_query($conn, "ALTER TABLE candidates ADD COLUMN scope_type VARCHAR(20) NOT NULL DEFAULT 'ALL' AFTER election_type");
+    }
+
+    if (!$candidate_scope_value_check || mysqli_num_rows($candidate_scope_value_check) === 0) {
+        $scope_value_added = mysqli_query($conn, "ALTER TABLE candidates ADD COLUMN scope_value VARCHAR(150) NOT NULL DEFAULT '' AFTER scope_type");
+    }
+
+    if ($scope_type_added && $scope_value_added) {
+        mysqli_query($conn, "UPDATE candidates SET scope_type = 'ALL' WHERE scope_type IS NULL OR scope_type = ''");
+        mysqli_query($conn, "UPDATE candidates SET scope_value = '' WHERE scope_value IS NULL");
+        $candidate_has_scope_columns = true;
+    }
+}
+
+$college_options = [];
+$course_options = [];
+$college_col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'college'");
+$course_col_check = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'course'");
+$student_profile_ready = (
+    $college_col_check && mysqli_num_rows($college_col_check) > 0
+    && $course_col_check && mysqli_num_rows($course_col_check) > 0
+);
+
+if ($student_profile_ready) {
+    $college_option_query = mysqli_query($conn, "SELECT DISTINCT TRIM(college) AS label FROM students WHERE TRIM(COALESCE(college, '')) != '' ORDER BY label ASC");
+    if ($college_option_query) {
+        while ($row = mysqli_fetch_assoc($college_option_query)) {
+            $college_options[] = (string)($row['label'] ?? '');
+        }
+        mysqli_free_result($college_option_query);
+    }
+
+    $course_option_query = mysqli_query($conn, "SELECT DISTINCT TRIM(course) AS label FROM students WHERE TRIM(COALESCE(course, '')) != '' ORDER BY label ASC");
+    if ($course_option_query) {
+        while ($row = mysqli_fetch_assoc($course_option_query)) {
+            $course_options[] = (string)($row['label'] ?? '');
+        }
+        mysqli_free_result($course_option_query);
+    }
+}
+
 $active_edit_candidate_id = null;
 
 // Add candidate
@@ -28,6 +81,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_candidate'])) {
         $name = trim($_POST['name']);
         $position = trim($_POST['position']);
         $details = trim($_POST['details']);
+        $scope_type = normalize_scope_type($_POST['scope_type'] ?? 'ALL');
+        $scope_value = trim($_POST['scope_value'] ?? '');
+
+        $scope_rule = candidate_scope_rule($position);
+        if ($scope_rule === 'ALL') {
+            $scope_type = 'ALL';
+            $scope_value = '';
+        } elseif ($scope_rule === 'COLLEGE_REQUIRED') {
+            $scope_type = 'COLLEGE';
+            if ($scope_value === '') {
+                $error = 'College is required for Governor and Vice Governor positions.';
+            }
+        } elseif ($scope_rule === 'COLLEGE_OR_COURSE') {
+            if (!in_array($scope_type, ['COLLEGE', 'COURSE'], true)) {
+                $scope_type = 'COLLEGE';
+            }
+            if ($scope_value === '') {
+                $error = 'Scope value is required for Congressman/Congresswoman positions.';
+            }
+        } elseif ($scope_type !== 'ALL' && $scope_value === '') {
+            $error = 'Please provide a scope value for college/course restrictions.';
+        }
 
         $picture_path = '';
         if (isset($_FILES['picture']) && $_FILES['picture']['error'] == 0) {
@@ -48,19 +123,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_candidate'])) {
             }
         }
 
-        if ($candidate_has_election_type) {
-            $stmt = mysqli_prepare($conn, 'INSERT INTO candidates (election_type, name, position, details, picture) VALUES (?, ?, ?, ?, ?)');
-            mysqli_stmt_bind_param($stmt, 'sssss', $election_type, $name, $position, $details, $picture_path);
-        } else {
-            $stmt = mysqli_prepare($conn, 'INSERT INTO candidates (name, position, details, picture) VALUES (?, ?, ?, ?)');
-            mysqli_stmt_bind_param($stmt, 'ssss', $name, $position, $details, $picture_path);
+        if (!isset($error)) {
+            if ($candidate_has_election_type && $candidate_has_scope_columns) {
+                $stmt = mysqli_prepare($conn, 'INSERT INTO candidates (election_type, scope_type, scope_value, name, position, details, picture) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                mysqli_stmt_bind_param($stmt, 'sssssss', $election_type, $scope_type, $scope_value, $name, $position, $details, $picture_path);
+            } elseif ($candidate_has_election_type) {
+                $stmt = mysqli_prepare($conn, 'INSERT INTO candidates (election_type, name, position, details, picture) VALUES (?, ?, ?, ?, ?)');
+                mysqli_stmt_bind_param($stmt, 'sssss', $election_type, $name, $position, $details, $picture_path);
+            } else {
+                $stmt = mysqli_prepare($conn, 'INSERT INTO candidates (name, position, details, picture) VALUES (?, ?, ?, ?)');
+                mysqli_stmt_bind_param($stmt, 'ssss', $name, $position, $details, $picture_path);
+            }
+
+            if (mysqli_stmt_execute($stmt)) {
+                $success = 'Candidate added successfully!';
+            } else {
+                $error = 'Unable to add candidate.';
+            }
+            mysqli_stmt_close($stmt);
         }
-        if (mysqli_stmt_execute($stmt)) {
-            $success = 'Candidate added successfully!';
-        } else {
-            $error = 'Unable to add candidate.';
-        }
-        mysqli_stmt_close($stmt);
     }
 }
 
@@ -74,6 +155,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_candidate'])) 
         $position = trim($_POST['position'] ?? '');
         $details = trim($_POST['details'] ?? '');
         $election_type = strtoupper(trim($_POST['election_type'] ?? 'SSG'));
+        $scope_type = normalize_scope_type($_POST['scope_type'] ?? 'ALL');
+        $scope_value = trim($_POST['scope_value'] ?? '');
 
         if (!in_array($election_type, ['SSG', 'FTP'], true)) {
             $election_type = 'SSG';
@@ -83,6 +166,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_candidate'])) 
             $error = 'Please complete the candidate details before saving.';
             $active_edit_candidate_id = $candidate_id > 0 ? $candidate_id : null;
         } else {
+            $scope_rule = candidate_scope_rule($position);
+            if ($scope_rule === 'ALL') {
+                $scope_type = 'ALL';
+                $scope_value = '';
+            } elseif ($scope_rule === 'COLLEGE_REQUIRED') {
+                $scope_type = 'COLLEGE';
+                if ($scope_value === '') {
+                    $error = 'College is required for Governor and Vice Governor positions.';
+                    $active_edit_candidate_id = $candidate_id;
+                }
+            } elseif ($scope_rule === 'COLLEGE_OR_COURSE') {
+                if (!in_array($scope_type, ['COLLEGE', 'COURSE'], true)) {
+                    $scope_type = 'COLLEGE';
+                }
+                if ($scope_value === '') {
+                    $error = 'Scope value is required for Congressman/Congresswoman positions.';
+                    $active_edit_candidate_id = $candidate_id;
+                }
+            } elseif ($scope_type !== 'ALL' && $scope_value === '') {
+                $error = 'Please provide a scope value for college/course restrictions.';
+                $active_edit_candidate_id = $candidate_id;
+            }
+
             $current_picture = '';
             $fetch_candidate = mysqli_prepare($conn, 'SELECT picture FROM candidates WHERE id = ?');
             mysqli_stmt_bind_param($fetch_candidate, 'i', $candidate_id);
@@ -130,7 +236,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_candidate'])) 
                 if (!isset($error)) {
                     mysqli_begin_transaction($conn);
 
-                    if ($candidate_has_election_type) {
+                    if ($candidate_has_election_type && $candidate_has_scope_columns) {
+                        $stmt = mysqli_prepare($conn, 'UPDATE candidates SET election_type = ?, scope_type = ?, scope_value = ?, name = ?, position = ?, details = ?, picture = ? WHERE id = ?');
+                        mysqli_stmt_bind_param($stmt, 'sssssssi', $election_type, $scope_type, $scope_value, $name, $position, $details, $picture_path, $candidate_id);
+                    } elseif ($candidate_has_election_type) {
                         $stmt = mysqli_prepare($conn, 'UPDATE candidates SET election_type = ?, name = ?, position = ?, details = ?, picture = ? WHERE id = ?');
                         mysqli_stmt_bind_param($stmt, 'sssssi', $election_type, $name, $position, $details, $picture_path, $candidate_id);
                     } else {
@@ -238,8 +347,13 @@ if (isset($_POST['reset_election'])) {
 // Normalize legacy position labels such as "SSG President" and "FTP Vice - President".
 $position_order_sql = candidate_position_order_sql($candidate_has_election_type ? 'election_type' : null, 'position');
 $candidates = $candidate_has_election_type
-    ? mysqli_query($conn, "SELECT * FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC")
-    : mysqli_query($conn, "SELECT *, 'SSG' AS election_type FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC");
+    ? mysqli_query(
+        $conn,
+        "SELECT *, "
+        . ($candidate_has_scope_columns ? "scope_type, scope_value" : "'ALL' AS scope_type, '' AS scope_value")
+        . " FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC"
+    )
+    : mysqli_query($conn, "SELECT *, 'SSG' AS election_type, 'ALL' AS scope_type, '' AS scope_value FROM candidates ORDER BY {$position_order_sql}, votes_count DESC, name ASC");
 $total_votes = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM votes"))['total'];
 $candidate_count = mysqli_num_rows($candidates);
 $position_counts = [];
@@ -943,7 +1057,7 @@ if (isset($_GET['stats'])) {
                     <div class="form-grid">
                         <div class="form-field">
                             <label>Election Type</label>
-                            <select name="election_type" required>
+                            <select name="election_type" class="election-type-field" data-position-select-id="new-position" required>
                                 <option value="SSG">SSG Election</option>
                                 <option value="FTP">FTP Election</option>
                             </select>
@@ -954,7 +1068,41 @@ if (isset($_GET['stats'])) {
                         </div>
                         <div class="form-field">
                             <label>Position</label>
-                            <input type="text" name="position" required placeholder="e.g., President, Vice President, Secretary">
+                            <select name="position" id="new-position" class="position-select-field" required>
+                                <option value="">-- Select a position --</option>
+                                <optgroup label="SSG Positions">
+                                    <option value="President">President</option>
+                                    <option value="Vice President">Vice President</option>
+                                    <option value="Senators">Senators</option>
+                                    <option value="Governors">Governors</option>
+                                    <option value="Vice Governors">Vice Governors</option>
+                                    <option value="Congressmen/Women">Congressmen/Women</option>
+                                </optgroup>
+                                <optgroup label="FTP Positions">
+                                    <option value="President">President</option>
+                                    <option value="Vice President">Vice President</option>
+                                    <option value="Auditor">Auditor</option>
+                                    <option value="Executive Secretary">Executive Secretary</option>
+                                    <option value="Secretary of Health & Sanitation">Secretary of Health & Sanitation</option>
+                                    <option value="Skills and Training">Skills and Training</option>
+                                    <option value="Budget & Finance">Budget & Finance</option>
+                                    <option value="Representative">Representative</option>
+                                    <option value="Independent">Independent</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>Candidate Scope</label>
+                            <select name="scope_type" class="scope-type-field" data-scope-value-id="new-scope-value" required>
+                                <option value="ALL">All students</option>
+                                <option value="COLLEGE">By college</option>
+                                <option value="COURSE">By course</option>
+                            </select>
+                            <div class="progress-subtitle">President, Vice President, and Senators are automatically shown to all students.</div>
+                        </div>
+                        <div class="form-field">
+                            <label>Scope Value (College/Course)</label>
+                            <input type="text" name="scope_value" id="new-scope-value" list="scope-values" placeholder="Required for Governor, Vice Governor, and Congressman/Congresswoman">
                         </div>
                         <div class="form-field">
                             <label>Details/Bio</label>
@@ -1038,6 +1186,7 @@ if (isset($_GET['stats'])) {
                                                 <th>Picture</th>
                                                 <th>Name</th>
                                                 <th>Position</th>
+                                                <th>Scope</th>
                                                 <th>Details</th>
                                                 <th>Votes</th>
                                                 <th>Status</th>
@@ -1052,7 +1201,7 @@ if (isset($_GET['stats'])) {
                                                 if ($candidate_position !== $current_position) {
                                                     $current_position = $candidate_position;
                                                     $position_total = $position_counts[$election_type][$current_position] ?? 0;
-                                                    echo "<tr class='position-row'><td colspan='7'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
+                                                    echo "<tr class='position-row'><td colspan='8'>" . htmlspecialchars($current_position) . "<span class='position-meta'>" . $position_total . " candidate(s)</span></td></tr>";
                                                 }
                                             ?>
                                             <tr>
@@ -1065,6 +1214,19 @@ if (isset($_GET['stats'])) {
                                                 </td>
                                                 <td><?php echo h($candidate['name']); ?></td>
                                                 <td><?php echo h($candidate_position); ?></td>
+                                                <td>
+                                                    <?php
+                                                    $scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL');
+                                                    $scope_value = trim((string)($candidate['scope_value'] ?? ''));
+                                                    if ($scope_type === 'ALL' || $scope_value === '') {
+                                                        echo '<span class="muted">All students</span>';
+                                                    } elseif ($scope_type === 'COURSE') {
+                                                        echo '<span class="badge">Course: ' . h($scope_value) . '</span>';
+                                                    } else {
+                                                        echo '<span class="badge">College: ' . h($scope_value) . '</span>';
+                                                    }
+                                                    ?>
+                                                </td>
                                                 <td><?php echo h(substr($candidate['details'], 0, 60)) . '...'; ?></td>
                                                 <td><strong><?php echo (int)$candidate['votes_count']; ?></strong></td>
                                                 <td>
@@ -1087,7 +1249,7 @@ if (isset($_GET['stats'])) {
                                                 </td>
                                             </tr>
                                                 <tr class="candidate-edit-row" id="candidate-edit-<?php echo (int)$candidate['id']; ?>" <?php echo $active_edit_candidate_id === (int)$candidate['id'] ? '' : 'hidden'; ?>>
-                                                    <td colspan="7">
+                                                    <td colspan="8">
                                                         <div class="candidate-edit-shell">
                                                             <div class="candidate-edit-head">
                                                                 <div>
@@ -1105,7 +1267,7 @@ if (isset($_GET['stats'])) {
                                                                 <div class="candidate-edit-grid">
                                                                     <div class="form-field">
                                                                         <label>Election Type</label>
-                                                                        <select name="election_type" required>
+                                                                        <select name="election_type" class="election-type-field" data-position-select-id="edit-position-<?php echo (int)$candidate['id']; ?>" required>
                                                                             <option value="SSG" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'SSG' ? 'selected' : ''; ?>>SSG Election</option>
                                                                             <option value="FTP" <?php echo strtoupper(trim($candidate['election_type'] ?? 'SSG')) === 'FTP' ? 'selected' : ''; ?>>FTP Election</option>
                                                                         </select>
@@ -1116,7 +1278,41 @@ if (isset($_GET['stats'])) {
                                                                     </div>
                                                                     <div class="form-field">
                                                                         <label>Position</label>
-                                                                        <input type="text" name="position" required value="<?php echo h($candidate['position']); ?>">
+                                                                        <select name="position" id="edit-position-<?php echo (int)$candidate['id']; ?>" class="position-select-field" required>
+                                                                            <option value="">-- Select a position --</option>
+                                                                            <optgroup label="SSG Positions">
+                                                                                <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
+                                                                                <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
+                                                                                <option value="Senators" <?php echo normalize_position_label($candidate['position']) === 'SENATORS' ? 'selected' : ''; ?>>Senators</option>
+                                                                                <option value="Governors" <?php echo normalize_position_label($candidate['position']) === 'GOVERNORS' ? 'selected' : ''; ?>>Governors</option>
+                                                                                <option value="Vice Governors" <?php echo normalize_position_label($candidate['position']) === 'VICE GOVERNORS' ? 'selected' : ''; ?>>Vice Governors</option>
+                                                                                <option value="Congressmen/Women" <?php echo normalize_position_label($candidate['position']) === 'CONGRESSMEN/WOMEN' ? 'selected' : ''; ?>>Congressmen/Women</option>
+                                                                            </optgroup>
+                                                                            <optgroup label="FTP Positions">
+                                                                                <option value="President" <?php echo normalize_position_label($candidate['position']) === 'PRESIDENT' ? 'selected' : ''; ?>>President</option>
+                                                                                <option value="Vice President" <?php echo normalize_position_label($candidate['position']) === 'VICE PRESIDENT' ? 'selected' : ''; ?>>Vice President</option>
+                                                                                <option value="Auditor" <?php echo normalize_position_label($candidate['position']) === 'AUDITOR' ? 'selected' : ''; ?>>Auditor</option>
+                                                                                <option value="Executive Secretary" <?php echo normalize_position_label($candidate['position']) === 'EXECUTIVE SECRETARY' ? 'selected' : ''; ?>>Executive Secretary</option>
+                                                                                <option value="Secretary of Health & Sanitation" <?php echo normalize_position_label($candidate['position']) === 'SECRETARY OF HEALTH & SANITATION' ? 'selected' : ''; ?>>Secretary of Health & Sanitation</option>
+                                                                                <option value="Skills and Training" <?php echo normalize_position_label($candidate['position']) === 'SKILLS AND TRAINING' ? 'selected' : ''; ?>>Skills and Training</option>
+                                                                                <option value="Budget & Finance" <?php echo normalize_position_label($candidate['position']) === 'BUDGET & FINANCE' ? 'selected' : ''; ?>>Budget & Finance</option>
+                                                                                <option value="Representative" <?php echo normalize_position_label($candidate['position']) === 'REPRESENTATIVE' ? 'selected' : ''; ?>>Representative</option>
+                                                                                <option value="Independent" <?php echo normalize_position_label($candidate['position']) === 'INDEPENDENT' ? 'selected' : ''; ?>>Independent</option>
+                                                                            </optgroup>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Candidate Scope</label>
+                                                                        <?php $edit_scope_type = normalize_scope_type($candidate['scope_type'] ?? 'ALL'); ?>
+                                                                        <select name="scope_type" class="scope-type-field" data-scope-value-id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" required>
+                                                                            <option value="ALL" <?php echo $edit_scope_type === 'ALL' ? 'selected' : ''; ?>>All students</option>
+                                                                            <option value="COLLEGE" <?php echo $edit_scope_type === 'COLLEGE' ? 'selected' : ''; ?>>By college</option>
+                                                                            <option value="COURSE" <?php echo $edit_scope_type === 'COURSE' ? 'selected' : ''; ?>>By course</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="form-field">
+                                                                        <label>Scope Value (College/Course)</label>
+                                                                        <input type="text" name="scope_value" id="edit-scope-value-<?php echo (int)$candidate['id']; ?>" list="scope-values" value="<?php echo h($candidate['scope_value'] ?? ''); ?>">
                                                                     </div>
                                                                     <div class="form-field">
                                                                         <label>Picture (Optional)</label>
@@ -1181,6 +1377,14 @@ if (isset($_GET['stats'])) {
                 </details>
             <?php endif; ?>
         </div>
+        <datalist id="scope-values">
+            <?php foreach ($college_options as $college_option): ?>
+                <option value="<?php echo h($college_option); ?>"></option>
+            <?php endforeach; ?>
+            <?php foreach ($course_options as $course_option): ?>
+                <option value="<?php echo h($course_option); ?>"></option>
+            <?php endforeach; ?>
+        </datalist>
     </main>
         <script>
             // Keep the admin dashboard open and force logout through a modal when the browser back button is used.
@@ -1293,6 +1497,132 @@ if (isset($_GET['stats'])) {
                     row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             }
+
+            function inferScopeRule(positionText) {
+                const normalized = String(positionText || '').toUpperCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (normalized.includes('GOVERNOR')) {
+                    return 'COLLEGE_REQUIRED';
+                }
+                if (normalized.includes('CONGRESS')) {
+                    return 'COLLEGE_OR_COURSE';
+                }
+                if (normalized === 'PRESIDENT' || normalized === 'VICE PRESIDENT' || normalized.includes('SENATOR')) {
+                    return 'ALL';
+                }
+                return 'FLEXIBLE';
+            }
+
+            function bindElectionTypeToPositions(electionTypeSelect) {
+                const positionSelectId = electionTypeSelect.getAttribute('data-position-select-id');
+                const positionSelect = positionSelectId ? document.getElementById(positionSelectId) : null;
+                if (!positionSelect) return;
+
+                const ssgPositions = ['President', 'Vice President', 'Senators', 'Governors', 'Vice Governors', 'Congressmen/Women'];
+                const ftpPositions = ['President', 'Vice President', 'Auditor', 'Executive Secretary', 'Secretary of Health & Sanitation', 'Skills and Training', 'Budget & Finance', 'Representative', 'Independent'];
+
+                const updatePositions = () => {
+                    const electionType = electionTypeSelect.value;
+                    const currentValue = positionSelect.value;
+                    const positions = electionType === 'FTP' ? ftpPositions : ssgPositions;
+
+                    const optgroups = positionSelect.querySelectorAll('optgroup');
+                    optgroups.forEach(og => og.remove());
+
+                    const ssgOptgroup = document.createElement('optgroup');
+                    ssgOptgroup.label = 'SSG Positions';
+                    ssgPositions.forEach(pos => {
+                        const opt = document.createElement('option');
+                        opt.value = pos;
+                        opt.textContent = pos;
+                        ssgOptgroup.appendChild(opt);
+                    });
+                    positionSelect.appendChild(ssgOptgroup);
+
+                    const ftpOptgroup = document.createElement('optgroup');
+                    ftpOptgroup.label = 'FTP Positions';
+                    ftpPositions.forEach(pos => {
+                        const opt = document.createElement('option');
+                        opt.value = pos;
+                        opt.textContent = pos;
+                        ftpOptgroup.appendChild(opt);
+                    });
+                    positionSelect.appendChild(ftpOptgroup);
+
+                    const resetOption = document.createElement('option');
+                    resetOption.value = '';
+                    resetOption.textContent = '-- Select a position --';
+                    positionSelect.insertBefore(resetOption, positionSelect.firstChild);
+
+                    if (positions.includes(currentValue)) {
+                        positionSelect.value = currentValue;
+                    } else {
+                        positionSelect.value = '';
+                    }
+                };
+
+                electionTypeSelect.addEventListener('change', updatePositions);
+            }
+
+            function bindScopeControls(form) {
+                const positionSelect = form.querySelector('.position-select-field');
+                const scopeTypeSelect = form.querySelector('.scope-type-field');
+                if (!positionSelect || !scopeTypeSelect) {
+                    return;
+                }
+
+                const scopeValueId = scopeTypeSelect.getAttribute('data-scope-value-id');
+                const scopeValueInput = scopeValueId ? document.getElementById(scopeValueId) : null;
+
+                const sync = () => {
+                    const rule = inferScopeRule(positionSelect.value);
+
+                    scopeTypeSelect.disabled = false;
+                    if (scopeValueInput) {
+                        scopeValueInput.disabled = false;
+                    }
+
+                    if (rule === 'ALL') {
+                        scopeTypeSelect.value = 'ALL';
+                        scopeTypeSelect.disabled = true;
+                        if (scopeValueInput) {
+                            scopeValueInput.value = '';
+                            scopeValueInput.required = false;
+                            scopeValueInput.disabled = true;
+                        }
+                        return;
+                    }
+
+                    if (rule === 'COLLEGE_REQUIRED') {
+                        scopeTypeSelect.value = 'COLLEGE';
+                        scopeTypeSelect.disabled = true;
+                        if (scopeValueInput) {
+                            scopeValueInput.required = true;
+                            scopeValueInput.placeholder = 'Required college name';
+                        }
+                        return;
+                    }
+
+                    if (scopeValueInput) {
+                        if (rule === 'COLLEGE_OR_COURSE') {
+                            if (scopeTypeSelect.value !== 'COLLEGE' && scopeTypeSelect.value !== 'COURSE') {
+                                scopeTypeSelect.value = 'COLLEGE';
+                            }
+                            scopeValueInput.required = true;
+                            scopeValueInput.placeholder = 'Required college or course name';
+                        } else {
+                            scopeValueInput.required = scopeTypeSelect.value !== 'ALL';
+                            scopeValueInput.placeholder = 'Required for college/course restrictions';
+                        }
+                    }
+                };
+
+                positionSelect.addEventListener('change', sync);
+                scopeTypeSelect.addEventListener('change', sync);
+                sync();
+            }
+
+            document.querySelectorAll('.election-type-field').forEach(bindElectionTypeToPositions);
+            document.querySelectorAll('form[enctype="multipart/form-data"]').forEach(bindScopeControls);
 
         </script>
 </body>

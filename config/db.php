@@ -67,6 +67,92 @@ if (!function_exists('normalize_position_label')) {
     }
 }
 
+if (!function_exists('normalize_scope_type')) {
+    function normalize_scope_type($value): string
+    {
+        $scope = strtoupper(trim((string) $value));
+        if (!in_array($scope, ['ALL', 'COLLEGE', 'COURSE'], true)) {
+            $scope = 'ALL';
+        }
+        return $scope;
+    }
+}
+
+if (!function_exists('candidate_scope_rule')) {
+    function candidate_scope_rule($position): string
+    {
+        $normalized = normalize_position_label($position);
+
+        if (strpos($normalized, 'GOVERNOR') !== false) {
+            return 'COLLEGE_REQUIRED';
+        }
+
+        if (strpos($normalized, 'CONGRESS') !== false) {
+            return 'COLLEGE_OR_COURSE';
+        }
+
+        if (
+            $normalized === 'PRESIDENT'
+            || $normalized === 'VICE PRESIDENT'
+            || strpos($normalized, 'SENATOR') !== false
+        ) {
+            return 'ALL';
+        }
+
+        return 'FLEXIBLE';
+    }
+}
+
+if (!function_exists('matches_scope_value')) {
+    function normalize_scope_value_key($value): string
+    {
+        $text = strtoupper(trim((string) $value));
+        $text = str_replace(['-', '_'], ' ', $text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim((string) $text);
+    }
+
+    function matches_scope_value($candidateValue, $studentValue): bool
+    {
+        $left = normalize_scope_value_key($candidateValue);
+        $right = normalize_scope_value_key($studentValue);
+        return $left !== '' && $left === $right;
+    }
+}
+
+if (!function_exists('candidate_visible_to_student')) {
+    function candidate_visible_to_student($position, $scopeType, $scopeValue, $studentCollege, $studentCourse): bool
+    {
+        $rule = candidate_scope_rule($position);
+        $scope = normalize_scope_type($scopeType);
+
+        if ($rule === 'ALL') {
+            return true;
+        }
+
+        if ($rule === 'COLLEGE_REQUIRED') {
+            return matches_scope_value($scopeValue, $studentCollege);
+        }
+
+        if ($rule === 'COLLEGE_OR_COURSE') {
+            if ($scope === 'COURSE') {
+                return matches_scope_value($scopeValue, $studentCourse);
+            }
+            return matches_scope_value($scopeValue, $studentCollege);
+        }
+
+        if ($scope === 'COLLEGE') {
+            return matches_scope_value($scopeValue, $studentCollege);
+        }
+
+        if ($scope === 'COURSE') {
+            return matches_scope_value($scopeValue, $studentCourse);
+        }
+
+        return true;
+    }
+}
+
 if (!function_exists('candidate_position_sql_normalized')) {
     function candidate_position_sql_normalized(string $column): string
     {
@@ -90,9 +176,16 @@ if (!function_exists('candidate_position_rank')) {
             'SSG' => [
                 'PRESIDENT' => 0,
                 'VICE PRESIDENT' => 1,
+                'SENATOR' => 2,
                 'SENATORS' => 2,
+                'GOVERNOR' => 3,
                 'GOVERNORS' => 3,
+                'VICE GOVERNOR' => 4,
                 'VICE GOVERNORS' => 4,
+                'CONGRESSMAN' => 5,
+                'CONGRESSWOMAN' => 5,
+                'CONGRESSMAN/CONGRESSWOMAN' => 5,
+                'CONGRESSPERSON' => 5,
                 'CONGRESSMEN/WOMEN' => 5,
             ],
             'FTP' => [
@@ -122,9 +215,16 @@ if (!function_exists('candidate_position_order_sql')) {
             'SSG' => [
                 'PRESIDENT',
                 'VICE PRESIDENT',
+                'SENATOR',
                 'SENATORS',
+                'GOVERNOR',
                 'GOVERNORS',
+                'VICE GOVERNOR',
                 'VICE GOVERNORS',
+                'CONGRESSMAN',
+                'CONGRESSWOMAN',
+                'CONGRESSMAN/CONGRESSWOMAN',
+                'CONGRESSPERSON',
                 'CONGRESSMEN/WOMEN',
             ],
             'FTP' => [
